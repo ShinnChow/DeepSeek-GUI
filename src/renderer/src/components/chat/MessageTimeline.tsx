@@ -84,7 +84,6 @@ type Props = {
 type CompactionTimelineBlock = Extract<ChatBlock, { kind: 'compaction' }>
 
 const TURN_PAGE_SIZE = 18
-const AUTO_COLLAPSE_THRESHOLD = 24
 const TIMELINE_JUMP_RAIL_FALLBACK_LEFT_PX = 16
 const TIMELINE_JUMP_RAIL_STAGE_INSET_PX = 16
 const TIMELINE_JUMP_RAIL_WIDTH_PX = 30
@@ -346,7 +345,6 @@ export function MessageTimeline({
     liveReasoning.length
   ].join(':')
   const {
-    visibleTurnCount,
     hiddenTurnCount,
     loadEarlierTurns,
     collapseEarlierTurns
@@ -355,7 +353,6 @@ export function MessageTimeline({
     endRef,
     activeThreadId,
     pageSize: TURN_PAGE_SIZE,
-    autoCollapseThreshold: AUTO_COLLAPSE_THRESHOLD,
     totalTurns: turns.length,
     busy,
     scrollDeps: {
@@ -548,7 +545,7 @@ export function MessageTimeline({
           <ThreadForkBanner parentTitle={forkedFromTitle} />
         ) : null}
 
-        {hiddenTurnCount > 0 ? (
+        {hiddenTurnCount > 0 && !busy ? (
           <div className="flex items-center justify-center">
             <button
               type="button"
@@ -676,7 +673,7 @@ export function MessageTimeline({
           <ThreadForkPoint parentTitle={forkedFromTitle} />
         ) : null}
 
-        {hiddenTurnCount === 0 && turns.length > TURN_PAGE_SIZE && turns.length > AUTO_COLLAPSE_THRESHOLD && !busy ? (
+        {hiddenTurnCount === 0 && turns.length > TURN_PAGE_SIZE && !busy ? (
           <div className="flex items-center justify-center">
             <button
               type="button"
