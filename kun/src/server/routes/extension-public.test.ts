@@ -273,6 +273,89 @@ describe('extension public routes', () => {
     ])
   })
 
+  it('keeps the trusted active workspace context across View Host activation and messages', async () => {
+    const fixture = await createFixture()
+    const router = buildExtensionPublicRouter(fixture.runtime)
+    fixture.broker.handlePrincipal.mockImplementation(async (input: { method: string }) => {
+      if (input.method !== 'commands.execute') return null
+      const workspaceContext = fixture.manager.activate.mock.calls.at(-1)?.[2]?.workspaceContext
+      if (!workspaceContext?.active || !workspaceContext.trusted) {
+        throw new Error('Project commands require an active trusted workspace')
+      }
+      return { projects: [] }
+    })
+
+    const created = await dispatchJson(router, 'POST', '/v1/extensions/view-sessions', {
+      contributionId: 'extension:acme.dashboard/panel',
+      workspaceRoot: '/workspace'
+    }, runtimeHeaders())
+    expect(created.status).toBe(201)
+    const expectedActivationOptions = {
+      workspaceRoot: '/workspace',
+      workspaceContext: {
+        id: fixture.paths.workspaceKey('/workspace'),
+        name: 'workspace',
+        root: '/workspace',
+        trusted: true,
+        active: true
+      }
+    }
+    expect(fixture.manager.activate).toHaveBeenLastCalledWith(
+      'acme.dashboard',
+      'onView:panel',
+      expectedActivationOptions
+    )
+
+    const headers = sessionHeaders(created.body.sessionId, created.body.nonce)
+    const projectList = await dispatchJson(
+      router,
+      'POST',
+      `/v1/extensions/view-sessions/${created.body.sessionId}/requests`,
+      {
+        requestId: 'request-project-list-1',
+        method: 'commands.execute',
+        params: { id: 'editor-request', args: { action: 'project.list' } }
+      },
+      headers
+    )
+    expect(projectList).toMatchObject({
+      status: 200,
+      body: { result: { projects: [] } }
+    })
+
+    const viewMessage = await dispatchJson(
+      router,
+      'POST',
+      `/v1/extensions/view-sessions/${created.body.sessionId}/messages`,
+      { channel: 'project.refresh', payload: null },
+      headers
+    )
+    expect(viewMessage.status).toBe(202)
+    expect(fixture.manager.activate).toHaveBeenLastCalledWith(
+      'acme.dashboard',
+      'onView:panel',
+      expectedActivationOptions
+    )
+
+    const hostMessage = await dispatchJson(
+      router,
+      'POST',
+      `/v1/extensions/view-sessions/${created.body.sessionId}/requests`,
+      {
+        requestId: 'request-host-message-1',
+        method: 'ui.postMessage',
+        params: { channel: 'project.refresh', payload: null }
+      },
+      headers
+    )
+    expect(hostMessage).toMatchObject({ status: 200, body: { result: null } })
+    expect(fixture.manager.activate).toHaveBeenLastCalledWith(
+      'acme.dashboard',
+      'onView:panel',
+      expectedActivationOptions
+    )
+  })
+
   it('rolls back the pre-retained View Session when Node Host activation fails', async () => {
     const fixture = await createFixture()
     const lifecycle: Array<{ state: string; sessionId: string }> = []
@@ -396,6 +479,65 @@ describe('extension public routes', () => {
     )
     expect(protectedOperation.status).toBe(403)
     expect(fixture.broker.handlePrincipal).toHaveBeenCalledTimes(1)
+  })
+
+  it('forwards guest-safe jobs and media methods without exposing credentials or registration', async () => {
+    const fixture = await createFixture()
+    fixture.broker.handlePrincipal
+      .mockResolvedValueOnce({ items: [], page: { hasMore: false } })
+      .mockResolvedValueOnce({ handleId: 'media_123456789012', streams: [] })
+    const router = buildExtensionPublicRouter(fixture.runtime)
+    const created = await dispatchJson(router, 'POST', '/v1/extensions/view-sessions', {
+      contributionId: 'extension:acme.dashboard/panel',
+      workspaceRoot: '/workspace'
+    }, runtimeHeaders())
+    const headers = sessionHeaders(created.body.sessionId, created.body.nonce)
+    const requestPath = `/v1/extensions/view-sessions/${created.body.sessionId}/requests`
+
+    const jobs = await dispatchJson(router, 'POST', requestPath, {
+      requestId: 'request-jobs-list-1',
+      method: 'jobs.list',
+      params: {}
+    }, headers)
+    expect(jobs).toMatchObject({
+      status: 200,
+      body: { result: { items: [], page: { hasMore: false } } }
+    })
+
+    const media = await dispatchJson(router, 'POST', requestPath, {
+      requestId: 'request-media-probe-1',
+      method: 'media.probe',
+      params: { handleId: 'media_123456789012' }
+    }, headers)
+    expect(media).toMatchObject({
+      status: 200,
+      body: { result: { handleId: 'media_123456789012' } }
+    })
+
+    for (const request of [
+      {
+        requestId: 'request-secret-reveal-1',
+        method: 'authentication.revealSecret',
+        params: { accountId: 'account-1', operation: 'sign request' }
+      },
+      {
+        requestId: 'request-tool-register-1',
+        method: 'tools.register',
+        params: { id: 'unsafe-registration' }
+      }
+    ]) {
+      const denied = await dispatchJson(router, 'POST', requestPath, request, headers)
+      expect(denied.status).toBe(403)
+    }
+    expect(fixture.broker.handlePrincipal).toHaveBeenCalledTimes(2)
+    expect(fixture.broker.handlePrincipal).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ method: 'jobs.list' })
+    )
+    expect(fixture.broker.handlePrincipal).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ method: 'media.probe' })
+    )
   })
 
   it('accepts the real workbench environment only from trusted Main', async () => {
@@ -1169,7 +1311,9 @@ async function createFixture(options: { maxEvents?: number; apiVersion?: string 
     'accounts.use:ext-provider',
     'accounts.manage:ext-provider',
     'media.read',
+    'media.process',
     'media.export',
+    'jobs.manage',
     'workspace.read',
     'workspace.write'
   ]

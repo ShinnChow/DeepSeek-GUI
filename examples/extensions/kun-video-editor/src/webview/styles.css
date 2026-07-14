@@ -19,6 +19,9 @@
   --danger: #ff7b86;
   --focus: #8cc8ff;
   --shadow: 0 14px 40px rgb(0 0 0 / 28%);
+  --app-glow: #222b3c;
+  --control: #0b0f16;
+  --control-hover: #252d3b;
   background: var(--bg);
 }
 
@@ -36,7 +39,7 @@ button {
   cursor: pointer;
   transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
 }
-button:hover:not(:disabled) { border-color: var(--accent); background: #252d3b; }
+button:hover:not(:disabled) { border-color: var(--accent); background: var(--control-hover); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { cursor: not-allowed; opacity: 0.46; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
@@ -48,7 +51,7 @@ input, select, textarea {
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 0.45rem 0.55rem;
-  background: #0b0f16;
+  background: var(--control);
 }
 textarea { resize: vertical; line-height: 1.45; }
 label { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.75rem; }
@@ -57,7 +60,12 @@ small { color: var(--muted); }
 h1, h2, p, ol, ul { margin-block: 0; }
 ul, ol { padding-inline-start: 0; }
 
-.editor-app { min-height: 100vh; background: radial-gradient(circle at 50% -12%, #222b3c 0, var(--bg) 32rem); }
+.editor-app {
+  min-height: 100vh;
+  color: var(--text);
+  background: radial-gradient(circle at 50% -12%, var(--app-glow) 0, var(--bg) 32rem);
+}
+:root[data-theme="light"],
 .editor-app[data-theme="light"] {
   color-scheme: light;
   --bg: #edf0f4;
@@ -77,7 +85,11 @@ ul, ol { padding-inline-start: 0; }
   --danger: #b42331;
   --focus: #005fcc;
   --shadow: 0 14px 40px rgb(38 48 68 / 15%);
+  --app-glow: #dbe5f2;
+  --control: #ffffff;
+  --control-hover: #dfe5ee;
 }
+:root[data-theme="high-contrast"],
 .editor-app[data-theme="high-contrast"] {
   color-scheme: dark;
   --bg: #000;
@@ -97,6 +109,9 @@ ul, ol { padding-inline-start: 0; }
   --danger: #ff7bff;
   --focus: #0ff;
   --shadow: none;
+  --app-glow: #000;
+  --control: #000;
+  --control-hover: #000;
 }
 .skip-link { position: fixed; inset-inline-start: 1rem; top: -5rem; z-index: 100; padding: 0.6rem 0.9rem; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
 .skip-link:focus { top: 1rem; }

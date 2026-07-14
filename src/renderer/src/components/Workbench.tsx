@@ -51,11 +51,13 @@ import {
   isExtensionContributionId
 } from '../extensions/contribution-ids'
 import {
+  isExtensionContributionSnapshotReady,
   useExtensionContributionLoadState,
   useWorkbenchContributions,
   workbenchContextForRoute
 } from '../extensions/use-contributions'
 import { extensionWorkbenchClient } from '../extensions/extension-workbench-client'
+import { resolveActiveExtensionWorkspaceRoot } from '../extensions/active-extension-workspace'
 import {
   canOpenHostContextMenuForTarget,
   DeclarativeContextMenuOverlay,
@@ -99,6 +101,10 @@ export function Workbench(): ReactElement {
     clearActiveThreadSelection, spawnSideConversation, openSideConversationDraft, selectSideConversation, setSidePanelOpen,
     sideConversations, sidePanel
   } = useWorkbenchChatStoreState()
+  const extensionWorkspaceRoot = useMemo(
+    () => resolveActiveExtensionWorkspaceRoot(activeThreadId, threads, workspaceRoot),
+    [activeThreadId, threads, workspaceRoot]
+  )
   const [input, setInput] = useState('')
   const [useWorktreePool, setUseWorktreePool] = useState(false)
   const [worktreeBranch, setWorktreeBranch] = useState('')
@@ -109,35 +115,43 @@ export function Workbench(): ReactElement {
   const { focusModeEnabled, runtimeLogPath, toggleTheme, uiModeCameosEnabled, updateFocusMode } =
     useWorkbenchUiRuntime()
   const contributionContext = useMemo(
-    () => workbenchContextForRoute(route, workspaceRoot),
-    [route, workspaceRoot]
+    () => workbenchContextForRoute(route, extensionWorkspaceRoot),
+    [extensionWorkspaceRoot, route]
   )
   const contributionLoadState = useExtensionContributionLoadState()
-  const extensionContributionSnapshotReady = contributionLoadState.status === 'ready' &&
-    contributionLoadState.workspaceRoot === workspaceRoot
+  const extensionContributionSnapshotReady = isExtensionContributionSnapshotReady(
+    contributionLoadState,
+    extensionWorkspaceRoot
+  )
   const extensionViewContainers = useWorkbenchContributions(
     'views.containers',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const extensionLeftSidebarItems = useWorkbenchContributions(
     'views.leftSidebar',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const extensionRightPanelItems = useWorkbenchContributions(
     'views.rightSidebar',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const extensionAuxiliaryPanelItems = useWorkbenchContributions(
     'views.auxiliaryPanel',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const extensionEditorTabItems = useWorkbenchContributions(
     'views.editorTab',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const extensionFullPageItems = useWorkbenchContributions(
     'views.fullPage',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.owner.kind === 'extension')
   const [activeExtensionSurfaceId, setActiveExtensionSurfaceId] = useState<string | null>(() =>
     readStoredExtensionSurfaceId(extensionSurfaceLayoutStorage))
@@ -177,25 +191,33 @@ export function Workbench(): ReactElement {
       const target = firstViewForContainer(container, extensionViewGroups)
       return target?.point === 'views.rightSidebar' ? [{ container, target }] : []
     }), [extensionViewContainers, extensionViewGroups])
-  const extensionTopBarActions = useWorkbenchContributions('actions.topBar', contributionContext)
-  const extensionComposerActions = useWorkbenchContributions('actions.composer', contributionContext)
-  const extensionMessageActions = useWorkbenchContributions('actions.message', contributionContext)
-  const extensionCommands = useWorkbenchContributions('commands', contributionContext)
+  const extensionTopBarActions = useWorkbenchContributions(
+    'actions.topBar', contributionContext, extensionContributionSnapshotReady)
+  const extensionComposerActions = useWorkbenchContributions(
+    'actions.composer', contributionContext, extensionContributionSnapshotReady)
+  const extensionMessageActions = useWorkbenchContributions(
+    'actions.message', contributionContext, extensionContributionSnapshotReady)
+  const extensionCommands = useWorkbenchContributions(
+    'commands', contributionContext, extensionContributionSnapshotReady)
   const extensionHostContextMenus = useWorkbenchContributions(
     'contextMenus',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => ['workspace', 'editor', 'view'].includes(contribution.payload.location))
   const extensionMessageContextMenus = useWorkbenchContributions(
     'contextMenus',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.payload.location === 'message')
   const extensionAttachmentContextMenus = useWorkbenchContributions(
     'contextMenus',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   ).filter((contribution) => contribution.payload.location === 'attachment')
   const extensionResultPreviews = useWorkbenchContributions(
     'message.resultPreviews',
-    contributionContext
+    contributionContext,
+    extensionContributionSnapshotReady
   )
   const [workspaceContextMenu, setWorkspaceContextMenu] = useState<{
     position: { x: number; y: number }
@@ -331,7 +353,9 @@ export function Workbench(): ReactElement {
   const openManagedExtensionView = useCallback(async (contributionId: string): Promise<void> => {
     let contribution = workbenchContributionRegistry.get(contributionId, contributionContext)
     if (!isExtensionWorkbenchView(contribution)) {
-      const snapshot = await extensionWorkbenchClient.loadContributions(workspaceRoot || undefined)
+      const snapshot = await extensionWorkbenchClient.loadContributions(
+        extensionWorkspaceRoot || undefined
+      )
       workbenchContributionRegistry.replaceExtensions(snapshot)
       contribution = workbenchContributionRegistry.get(contributionId, contributionContext)
     }
@@ -341,15 +365,15 @@ export function Workbench(): ReactElement {
           contributionId.startsWith(`extension:${diagnostic.extensionId ?? ''}/`))
       const detail = diagnostics[0]?.message
       throw new Error(detail
-        ? `扩展视图无法打开：${detail}`
-        : '扩展视图当前不可用。请检查扩展版本、工作区信任和权限。')
+        ? t('extensionViewOpenFailedDetail', { detail })
+        : t('extensionViewOpenFailed'))
     }
     openExtensionSurface(contribution)
-  }, [contributionContext, openExtensionSurface, workspaceRoot])
+  }, [contributionContext, extensionWorkspaceRoot, openExtensionSurface, t])
 
   useEffect(() => {
     setActiveExtensionSurfaceId(readStoredExtensionSurfaceId(extensionSurfaceLayoutStorage))
-  }, [workspaceRoot])
+  }, [extensionWorkspaceRoot])
 
   useEffect(() => {
     if (
@@ -765,7 +789,7 @@ export function Workbench(): ReactElement {
       onTogglePreserveAcrossThreads: togglePreserveFilePreviewTargets
     },
     extensionView: activeExtensionRightPanel,
-    workspaceRoot
+    workspaceRoot: extensionWorkspaceRoot
   })
 
   return (
@@ -807,7 +831,7 @@ export function Workbench(): ReactElement {
         connectPhoneSidebarOpen={connectPhoneSidebarOpen}
         extensionsActive={route === 'extensions'}
         extensionView={activeExtensionLeftSidebar}
-        workspaceRoot={workspaceRoot}
+        workspaceRoot={extensionWorkspaceRoot}
         onCloseExtensionView={() => selectExtensionSurface(null)}
         runtimeReady={runtimeConnection === 'ready'}
         threadSearch={threadSearch}
@@ -844,7 +868,7 @@ export function Workbench(): ReactElement {
         <main className="ds-stage-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ExtensionViewOutlet
             contribution={activeExtensionCenterView}
-            workspaceRoot={workspaceRoot}
+            workspaceRoot={extensionWorkspaceRoot}
             onClose={() => selectExtensionSurface(null)}
           />
         </main>
@@ -948,7 +972,7 @@ export function Workbench(): ReactElement {
               const result = await extensionWorkbenchClient.invokeCommand(
                 commandId,
                 context,
-                workspaceRoot || undefined
+                extensionWorkspaceRoot || undefined
               )
               const view = resolveCommandOpenView(
                 commandId,
@@ -995,7 +1019,7 @@ export function Workbench(): ReactElement {
         imageAnnotationHost={imageAnnotationHost}
         planOverlay={planOverlay}
         extensions={{
-          workspaceRoot,
+          workspaceRoot: extensionWorkspaceRoot,
           onOpenIntegrations: openPluginsView,
           onOpenView: openManagedExtensionView
         }}
@@ -1005,7 +1029,7 @@ export function Workbench(): ReactElement {
         <div className="ds-no-drag h-[min(38vh,360px)] min-h-48 shrink-0 border-t border-ds-border-muted">
           <ExtensionViewOutlet
             contribution={activeExtensionAuxiliaryPanel}
-            workspaceRoot={workspaceRoot}
+            workspaceRoot={extensionWorkspaceRoot}
             onClose={() => selectExtensionSurface(null)}
           />
         </div>
@@ -1017,12 +1041,16 @@ export function Workbench(): ReactElement {
         commands={extensionCommands}
         context={{
           surface: workspaceContextMenu?.location ?? 'workspace',
-          workspaceRoot: workspaceRoot || null,
+          workspaceRoot: extensionWorkspaceRoot || null,
           contributionId: workspaceContextMenu?.contributionId ?? null
         }}
         position={workspaceContextMenu?.position ?? null}
         onCommand={(commandId, commandContext) =>
-          extensionWorkbenchClient.invokeCommand(commandId, commandContext, workspaceRoot || undefined)}
+          extensionWorkbenchClient.invokeCommand(
+            commandId,
+            commandContext,
+            extensionWorkspaceRoot || undefined
+          )}
         onClose={() => setWorkspaceContextMenu(null)}
       />
     </div>

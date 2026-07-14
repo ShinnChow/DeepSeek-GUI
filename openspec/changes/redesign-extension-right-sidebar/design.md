@@ -60,6 +60,26 @@ Existing non-right contributions remain in schemas, registry, commands, View Ses
 
 This is not marked as an Extension API breaking change because no manifest field or runtime method is removed. It is a workbench navigation and recommendation change.
 
+### 6. One active workspace owns discovery, trust, View activation, and Agent coordination
+
+The renderer derives one extension workspace from the active thread workspace, falling back to the selected project workspace when no thread is active. Contribution discovery, visibility expressions, command invocation, View Session creation, extension storage, and panel rendering all use that same value. This keeps the right-sidebar panel in the same workspace scope as the main Agent instead of combining a global project grant with a conversation-specific Agent session.
+
+When a trusted workspace-scoped View activates a Node Host, Kun supplies both the admitted workspace root and the SDK `workspaceContext` (`id`, `name`, `root`, `trusted`, and `active`). Every later View-to-Host reactivation uses the same context. A View must not be admitted as trusted and then receive an inactive or absent workspace context at runtime.
+
+Alternative considered: make the video extension tolerate an absent workspace context. Rejected because it would weaken the public SDK invariant and hide a Host bug affecting every workspace-aware extension.
+
+### 7. Host appearance state initializes independently from extension data
+
+The video View reads and applies Kun's current theme and locale independently from project, job, and persisted-state requests. A failed runtime-backed request must not discard a successfully returned Host locale or theme. The View subscribes to the existing appearance-change events so a language or theme change in Kun updates the open panel without reopening it, and all visible reference-editor copy has English and Simplified Chinese messages.
+
+Alternative considered: rely on a later locale-change event after initialization fails. Rejected because users may never change the setting again, leaving the View permanently in its fallback language and theme.
+
+### 8. Sandboxed View methods remain aligned across Desktop Host and Kun Runtime
+
+The Desktop Host keeps control of native-only interactions such as file pickers, but every documented guest-safe broker method that it forwards to Kun must also be admitted by the Runtime View policy. In particular, an extension granted `jobs.manage` or the relevant media permission can use the public jobs and brokered-media services from its sandboxed View. Both layers remain fail-closed for credential reveal, registration, and other Node Host-only methods.
+
+Alternative considered: let the bundled video editor omit job restoration until a render begins. Rejected because it would only hide a broken public API contract and would make every third-party View using the documented jobs client fail in the same way.
+
 ## Risks / Trade-offs
 
 - [A complex editor is cramped in a docked panel] → Open extension panels at a useful Host-owned width, keep resizing, and provide a deliberate single-column responsive layout with bounded scroll regions.
@@ -69,6 +89,9 @@ This is not marked as an Extension API breaking change because no manifest field
 - [Multiple extension icons can crowd the rail] → Keep deterministic host ordering, bounded icon metadata, tooltips, and normal overflow policy; do not allow extensions to inject arbitrary rail content.
 - [A declared icon path becomes a general Host resource escape] → Mark Host icon requests explicitly, require an exact manifest icon match, and allow the custom scheme only in the main renderer's image CSP.
 - [Bundled upgrade revokes workspace trust] → Preserve the existing security rule that a new code version requires workspace review; do not silently carry trust across changed bytes.
+- [Contribution discovery and View activation drift into different workspaces] → Derive one active extension workspace in the renderer and use it for every contribution and View operation.
+- [A project request fails before appearance initialization completes] → Resolve locale/theme separately, apply each successful Host response, and test failure isolation plus live setting changes.
+- [Desktop and Runtime View policies drift] → Cover a forwarded jobs request through the public View Session route while retaining negative credential and registration policy tests.
 
 ## Migration Plan
 

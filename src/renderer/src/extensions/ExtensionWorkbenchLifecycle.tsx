@@ -16,10 +16,12 @@ import {
 } from './content-script-planner'
 import { extensionWorkbenchClient } from './extension-workbench-client'
 import {
+  isExtensionContributionSnapshotReady,
   useExtensionContributionBootstrap,
   useWorkbenchContributions,
   workbenchContextForRoute
 } from './use-contributions'
+import { useActiveExtensionWorkspaceRoot } from './active-extension-workspace'
 
 /**
  * App-wide contribution discovery and Direct DOM lifecycle. Keeping this
@@ -29,7 +31,7 @@ import {
  */
 export function ExtensionWorkbenchLifecycle(): ReactElement {
   const route = useChatStore((state) => state.route)
-  const workspaceRoot = useChatStore((state) => state.workspaceRoot)
+  const extensionWorkspaceRoot = useActiveExtensionWorkspaceRoot()
   const runtimeConnection = useChatStore((state) => state.runtimeConnection)
   const protectedSurface = useChatStore((state) => protectedSurfaceForWorkbench({
     route: state.route,
@@ -38,26 +40,47 @@ export function ExtensionWorkbenchLifecycle(): ReactElement {
   }))
   const loadComposerModels = useChatStore((state) => state.loadComposerModels)
   const context = useMemo(
-    () => workbenchContextForRoute(route, workspaceRoot),
-    [route, workspaceRoot]
+    () => workbenchContextForRoute(route, extensionWorkspaceRoot),
+    [extensionWorkspaceRoot, route]
   )
-  useExtensionContributionBootstrap(workspaceRoot, runtimeConnection)
-  const contentScripts = useWorkbenchContributions('hostContentScripts', context)
-  const notifications = useWorkbenchContributions('notifications', context)
+  const contributionLoadState = useExtensionContributionBootstrap(
+    extensionWorkspaceRoot,
+    runtimeConnection
+  )
+  const contributionSnapshotReady = isExtensionContributionSnapshotReady(
+    contributionLoadState,
+    extensionWorkspaceRoot
+  )
+  const contentScripts = useWorkbenchContributions(
+    'hostContentScripts',
+    context,
+    contributionSnapshotReady
+  )
+  const notifications = useWorkbenchContributions(
+    'notifications',
+    context,
+    contributionSnapshotReady
+  )
   const [dynamicNotifications, setDynamicNotifications] = useState<ExtensionWorkbenchNotification[]>([])
   const respondingNotifications = useRef(new Set<string>())
+  const contentScriptSyncQueue = useRef<Promise<void>>(Promise.resolve())
   const plan = useMemo(
     () => buildHostContentScriptPlan({ contributions: contentScripts, route, protectedSurface }),
     [contentScripts, protectedSurface, route]
   )
 
   useEffect(() => {
-    void syncHostContentScriptPlan(plan, workspaceRoot).catch((error) => {
-      void window.kunGui?.logError?.('extension-content-script', 'Failed to sync host content scripts', {
-        message: error instanceof Error ? error.message : String(error)
+    contentScriptSyncQueue.current = contentScriptSyncQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        await syncHostContentScriptPlan(plan, extensionWorkspaceRoot)
       })
-    })
-  }, [plan, workspaceRoot])
+      .catch((error) => {
+        void window.kunGui?.logError?.('extension-content-script', 'Failed to sync host content scripts', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+  }, [extensionWorkspaceRoot, plan])
 
   useEffect(() => {
     const refresh = (): void => {
@@ -105,7 +128,11 @@ export function ExtensionWorkbenchLifecycle(): ReactElement {
       <DeclarativeNotifications
         contributions={notifications}
         onCommand={(commandId, commandContext) =>
-          extensionWorkbenchClient.invokeCommand(commandId, commandContext, workspaceRoot || undefined)}
+          extensionWorkbenchClient.invokeCommand(
+            commandId,
+            commandContext,
+            extensionWorkspaceRoot || undefined
+          )}
       />
     </div>
   )

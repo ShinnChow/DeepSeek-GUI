@@ -37,6 +37,18 @@ An opened extension right-sidebar View SHALL use the existing Host-owned resizab
 - **WHEN** a permission required by the selected right-sidebar View is revoked
 - **THEN** Kun SHALL remove the rail entry, dispose the View Session, and retain unrelated built-in and extension panel state
 
+#### Scenario: Active conversation has its own workspace
+- **WHEN** the selected conversation workspace differs from the globally selected project workspace
+- **THEN** contribution discovery, trust evaluation, command invocation, View Session creation, and panel storage SHALL all use the selected conversation workspace used by the main Agent
+
+#### Scenario: Workspace-aware Node View activates
+- **WHEN** Kun activates or reactivates a trusted workspace-scoped Node extension for an open View
+- **THEN** the Extension Host SHALL receive an active and trusted SDK workspace context for the same admitted root and workspace identity
+
+#### Scenario: Sandboxed View uses a permitted job service
+- **WHEN** an admitted View with `jobs.manage` calls a documented jobs method through the Desktop Host
+- **THEN** the Desktop Host and Kun Runtime SHALL both admit the request and the broker SHALL enforce ownership and permission checks
+
 ### Requirement: Legacy View contracts remain parse-compatible
 Extension API v1 schemas and runtime routing SHALL continue to accept documented non-right View contribution points. New Kun guidance and bundled examples SHALL identify `views.rightSidebar` as the canonical discoverable extension UI.
 

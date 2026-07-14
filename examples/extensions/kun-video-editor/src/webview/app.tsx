@@ -9,13 +9,14 @@ import {
   type ReactNode
 } from 'react'
 import { artifactUsesPlayer, artifactsForJobs, type EditorController } from './controller.js'
-import { messagesFor, type Messages } from './i18n.js'
+import { formatMessage, messagesFor, type Messages } from './i18n.js'
 import {
   VIEW_LIMITS,
   activeTranscriptSegment,
   frameToSeconds,
   proofIsStale,
   type CaptionProjection,
+  type EditorState,
   type ItemProjection,
   type ProjectProjection,
   type RenderTicket,
@@ -43,6 +44,11 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
   }, [state.notices])
 
   useEffect(() => {
+    syncDocumentPresentation(document.documentElement, state.theme, state.locale)
+    document.title = messages.appName
+  }, [messages.appName, state.locale, state.theme])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return
@@ -51,11 +57,14 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
         controller.togglePlaying()
       } else if (event.key.toLowerCase() === 's' && selectedItem && project) {
         event.preventDefault()
-        void splitAtPlayhead(controller, project, selectedItem)
+        void splitAtPlayhead(controller, project, selectedItem, messages)
       } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedItem) {
         event.preventDefault()
-        if (window.confirm('Delete the selected timeline item? You can undo this edit.')) {
-          void controller.applyOperations([{ type: 'delete-item', itemId: selectedItem.id }], `Deleted ${selectedItem.id}`)
+        if (window.confirm(messages.deleteItemConfirm)) {
+          void controller.applyOperations(
+            [{ type: 'delete-item', itemId: selectedItem.id }],
+            formatMessage(messages.deleteSummary, { id: selectedItem.id })
+          )
         }
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault()
@@ -64,7 +73,7 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [controller, project, selectedItem])
+  }, [controller, messages, project, selectedItem])
 
   return (
     <div
@@ -90,24 +99,24 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
             <span>{notice.message}</span>
             {notice.interactionRequired && <strong>{messages.interactionRequired}</strong>}
             <button type="button" className="quiet-button" onClick={() => controller.dismissNotice(notice.id)}>
-              Dismiss
+              {messages.dismiss}
             </button>
           </div>
         ))}
       </div>
 
       {!state.initialized ? (
-        <main className="center-state" aria-busy="true"><Spinner /> Loading editor…</main>
+        <main className="center-state" aria-busy="true"><Spinner /> {messages.loadingEditor}</main>
       ) : !project ? (
         <EmptyProject controller={controller} messages={messages} />
       ) : (
         <main id="video-editor-main" className="workbench" aria-label={messages.appName} aria-busy={state.busy}>
-          <aside className="left-column" aria-label="Source material">
+          <aside className="left-column" aria-label={messages.sourceMaterial}>
             <MediaLibrary controller={controller} messages={messages} />
             <TranscriptPanel controller={controller} messages={messages} />
           </aside>
 
-          <section className="center-column" aria-label="Edit canvas">
+          <section className="center-column" aria-label={messages.editCanvas}>
             <Panel title={messages.player} className="player-panel" actions={
               <span className="subtle">{formatTime(frameToSeconds(project, state.playheadFrame))} / {formatTime(frameToSeconds(project, project.durationFrames))}</span>
             }>
@@ -121,18 +130,19 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
                 onSeek={controller.seek}
                 onPlaybackChange={(playing) => playing !== state.playing && controller.togglePlaying()}
                 onResourceError={() => void controller.refreshActiveLease()}
+                messages={messages}
               />
-              <PlayerControls controller={controller} project={project} />
+              <PlayerControls controller={controller} project={project} messages={messages} />
             </Panel>
             <TimelinePanel controller={controller} messages={messages} />
           </section>
 
-          <aside className="right-column" aria-label="Inspector and Agent coordination">
+          <aside className="right-column" aria-label={messages.inspectorAndAgent}>
             <InspectorPanel controller={controller} item={selectedItem} caption={selectedCaption} messages={messages} />
             <AgentSyncPanel controller={controller} messages={messages} />
           </aside>
 
-          <section className="bottom-strip" aria-label="Project output and history">
+          <section className="bottom-strip" aria-label={messages.projectOutputAndHistory}>
             <CaptionPanel controller={controller} messages={messages} />
             <RevisionPanel controller={controller} messages={messages} />
             <PreviewPanel controller={controller} artifacts={artifacts} messages={messages} />
@@ -149,10 +159,25 @@ export function VideoEditorWorkbench({ controller }: VideoEditorWorkbenchProps):
   )
 }
 
+export function syncDocumentPresentation(
+  documentRoot: Pick<HTMLElement, 'dataset' | 'dir' | 'lang'>,
+  theme: EditorState['theme'],
+  locale: EditorState['locale']
+): void {
+  documentRoot.dataset.theme = theme?.kind ?? 'dark'
+  documentRoot.lang = locale?.language ?? 'en'
+  documentRoot.dir = locale?.direction ?? 'ltr'
+}
+
 function ProjectBar({ controller, messages }: { controller: EditorController; messages: Messages }): React.JSX.Element {
   const { state } = controller
-  const [name, setName] = useState('Untitled interview')
+  const [name, setName] = useState(messages.untitledInterview)
+  const previousDefaultName = useRef(messages.untitledInterview)
   const [preset, setPreset] = useState<'16:9' | '9:16' | '1:1'>('16:9')
+  useEffect(() => {
+    setName((current) => current === previousDefaultName.current ? messages.untitledInterview : current)
+    previousDefaultName.current = messages.untitledInterview
+  }, [messages.untitledInterview])
   const create = (event: FormEvent): void => {
     event.preventDefault()
     void controller.createProject(name, preset)
@@ -161,7 +186,7 @@ function ProjectBar({ controller, messages }: { controller: EditorController; me
     <header className="project-bar">
       <div className="brand-block">
         <span className="brand-mark" aria-hidden="true">K</span>
-        <div><strong>{messages.appName}</strong><small>Transcript-first workbench</small></div>
+        <div><strong>{messages.appName}</strong><small>{messages.workbenchSubtitle}</small></div>
       </div>
       <nav className="project-controls" aria-label={messages.projects}>
         <label>
@@ -171,20 +196,20 @@ function ProjectBar({ controller, messages }: { controller: EditorController; me
             onChange={(event) => event.target.value && void controller.openProject(event.target.value)}
             disabled={state.busy}
           >
-            <option value="">Select a project</option>
+            <option value="">{messages.selectProject}</option>
             {state.projects.map((project) => <option key={project.id} value={project.id}>{project.name} · r{project.currentRevision}</option>)}
           </select>
         </label>
         <form className="new-project-form" onSubmit={create}>
-          <label><span>Project name</span><input value={name} maxLength={160} onChange={(event) => setName(event.target.value)} required /></label>
-          <label><span>Canvas</span><select value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>
+          <label><span>{messages.projectName}</span><input value={name} maxLength={160} onChange={(event) => setName(event.target.value)} required /></label>
+          <label><span>{messages.canvas}</span><select value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>
             <option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option>
           </select></label>
           <button type="submit" disabled={state.busy}>{messages.createProject}</button>
         </form>
       </nav>
       <div className="project-actions">
-        <span className={`connection connection-${state.connection}`}>{state.connection === 'online' ? messages.connected : state.connection}</span>
+        <span className={`connection connection-${state.connection}`}>{connectionLabel(messages, state.connection)}</span>
         {state.project && <span className="revision-badge">r{state.project.currentRevision}</span>}
         <button type="button" onClick={() => void controller.importMedia()} disabled={!state.project || state.busy}>{messages.importMedia}</button>
         <button type="button" onClick={() => void controller.undo()} disabled={!(state.project?.canUndo ?? Boolean(state.project && state.project.currentRevision > 0)) || state.busy}>{messages.undo}</button>
@@ -200,14 +225,14 @@ function EmptyProject({ controller, messages }: { controller: EditorController; 
     <main id="video-editor-main" className="empty-project">
       <div className="empty-illustration" aria-hidden="true"><span>01:24</span><i /><i /><i /></div>
       <div>
-        <p className="eyebrow">Local-first editing</p>
-        <h1>Shape the story, keep every cut editable.</h1>
+        <p className="eyebrow">{messages.localFirstEditing}</p>
+        <h1>{messages.emptyProjectTitle}</h1>
         <p>{messages.noProject}</p>
         <p className="boundary-note">{messages.unsupported}</p>
         <div className="button-row">
           {controller.state.projects.slice(0, 3).map((project) => (
             <button type="button" key={project.id} onClick={() => void controller.openProject(project.id)}>
-              Open {project.name}
+              {formatMessage(messages.openProject, { name: project.name })}
             </button>
           ))}
         </div>
@@ -222,7 +247,7 @@ function MediaLibrary({ controller, messages }: { controller: EditorController; 
   return (
     <Panel title={messages.mediaLibrary} actions={<button type="button" className="quiet-button" onClick={() => void controller.importMedia()}>{messages.importMedia}</button>}>
       {assets.length === 0 ? <EmptyState>{messages.noMedia}</EmptyState> : (
-        <ul className="media-list" aria-label="Imported media">
+        <ul className="media-list" aria-label={messages.importedMedia}>
           {assets.map((asset) => {
             const revoked = Boolean(asset.mediaHandleId && controller.state.revokedHandles.includes(asset.mediaHandleId))
             return (
@@ -233,16 +258,18 @@ function MediaLibrary({ controller, messages }: { controller: EditorController; 
                   onClick={() => void controller.openAsset(asset.id)}
                   aria-pressed={controller.state.selectedAssetId === asset.id}
                 >
-                  <span className={`media-kind media-kind-${asset.kind}`}>{asset.kind === 'video' ? 'VID' : 'AUD'}</span>
+                  <span className={`media-kind media-kind-${asset.kind}`}>{asset.kind === 'video' ? messages.videoAbbreviation : messages.audioAbbreviation}</span>
                   <span><strong>{asset.name}</strong><small>{formatTime(asset.durationUs / 1_000_000)} · {asset.container}</small></span>
-                  {revoked && <em>Reauthorize</em>}
+                  {revoked && <em>{messages.reauthorize}</em>}
                 </button>
               </li>
             )
           })}
         </ul>
       )}
-      {project.assets.length > assets.length && <p className="subtle">Showing the first {assets.length} of {project.assets.length} bounded assets.</p>}
+      {project.assets.length > assets.length && (
+        <p className="subtle">{formatMessage(messages.boundedAssets, { visible: assets.length, total: project.assets.length })}</p>
+      )}
     </Panel>
   )
 }
@@ -258,9 +285,9 @@ function TranscriptPanel({ controller, messages }: { controller: EditorControlle
   const visible = segments.slice(start, start + VIEW_LIMITS.virtualWindow)
   const active = activeTranscriptSegment(project, state.selectedAssetId, state.playheadFrame)
   return (
-    <Panel title={messages.transcript} actions={<VirtualControls start={start} total={segments.length} onChange={controller.setTranscriptWindow} />}>
+    <Panel title={messages.transcript} actions={<VirtualControls start={start} total={segments.length} onChange={controller.setTranscriptWindow} messages={messages} />}>
       {segments.length === 0 ? <EmptyState>{messages.noTranscript}</EmptyState> : (
-        <ol className="transcript-list" start={start + 1} aria-label="Timed transcript segments">
+        <ol className="transcript-list" start={start + 1} aria-label={messages.timedTranscriptSegments}>
           {visible.map((segment) => (
             <li key={`${segment.assetId}:${segment.id}`}>
               <button
@@ -277,7 +304,7 @@ function TranscriptPanel({ controller, messages }: { controller: EditorControlle
           ))}
         </ol>
       )}
-      <p className="boundary-note">Transcript and timing evidence do not prove unseen visual events.</p>
+      <p className="boundary-note">{messages.transcriptEvidenceBoundary}</p>
       <ScriptReview controller={controller} messages={messages} />
     </Panel>
   )
@@ -289,7 +316,7 @@ function ScriptReview({ controller, messages }: { controller: EditorController; 
   const apply = (): void => {
     try {
       const parsed: unknown = JSON.parse(ranges)
-      if (!Array.isArray(parsed)) throw new Error('Ranges must be a JSON array.')
+      if (!Array.isArray(parsed)) throw new Error(messages.rangesRequired)
       void controller.applyScript(parsed as Array<{ assetId: string; startUs: number; endUs: number; reason?: 'filler' | 'silence' | 'selection' }>)
     } catch {
       // Keep validation local and non-destructive; the button is paired with
@@ -303,11 +330,11 @@ function ScriptReview({ controller, messages }: { controller: EditorController; 
         <button type="button" onClick={() => void controller.readScript()}>{messages.readScript}</button>
       ) : (
         <div className="field-stack">
-          <span className="subtle">Revision {script.revision} · digest {script.digest.slice(0, 12) || 'unavailable'}{script.dirty ? ' · edited' : ''}</span>
-          <label><span>Revision-bound timeline.md</span><textarea rows={12} value={script.markdown} onChange={(event) => controller.editScript(event.target.value)} /></label>
-          <label><span>Explicit source ranges (JSON)</span><textarea rows={4} value={ranges} onChange={(event) => setRanges(event.target.value)} aria-describedby="range-help" /></label>
-          <small id="range-help">Example: [{`{"assetId":"asset-1","startUs":1000000,"endUs":1300000,"reason":"filler"}`}]</small>
-          <div className="button-row"><button type="button" onClick={apply} disabled={controller.state.busy}>{messages.apply}</button><button type="button" className="quiet-button" onClick={() => void controller.readScript()}>Reload</button></div>
+          <span className="subtle">{messages.revisionLabel} {script.revision} · {messages.digestLabel} {script.digest.slice(0, 12) || messages.unavailable}{script.dirty ? ` · ${messages.edited}` : ''}</span>
+          <label><span>{messages.revisionBoundTimeline}</span><textarea rows={12} value={script.markdown} onChange={(event) => controller.editScript(event.target.value)} /></label>
+          <label><span>{messages.explicitSourceRanges} (JSON)</span><textarea rows={4} value={ranges} onChange={(event) => setRanges(event.target.value)} aria-describedby="range-help" /></label>
+          <small id="range-help">{messages.example}: [{`{"assetId":"asset-1","startUs":1000000,"endUs":1300000,"reason":"filler"}`}]</small>
+          <div className="button-row"><button type="button" onClick={apply} disabled={controller.state.busy}>{messages.apply}</button><button type="button" className="quiet-button" onClick={() => void controller.readScript()}>{messages.reload}</button></div>
         </div>
       )}
     </details>
@@ -324,6 +351,7 @@ function MediaPlayer(props: {
   onSeek(frame: number): void
   onPlaybackChange(playing: boolean): void
   onResourceError(): void
+  messages: Messages
 }): React.JSX.Element {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const seconds = frameToSeconds(props.project, props.playheadFrame)
@@ -343,24 +371,24 @@ function MediaPlayer(props: {
     if (media) props.onSeek(Math.round(media.currentTime * props.project.fps.numerator / props.project.fps.denominator))
   }
   if (!props.url) {
-    return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><EmptyState>Select a media asset or completed artifact to preview it.</EmptyState></div>
+    return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><EmptyState>{props.messages.selectMediaPreview}</EmptyState></div>
   }
   if (props.kind === 'image') {
-    return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><img src={props.url} alt={props.title ? `Proof frame: ${props.title}` : 'Generated proof frame'} onError={props.onResourceError} /></div>
+    return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><img src={props.url} alt={props.title ? `${props.messages.proofFrame}: ${props.title}` : props.messages.generatedProofFrame} onError={props.onResourceError} /></div>
   }
   if (props.kind === 'audio') {
-    return <div className="player-stage audio-stage"><div className="audio-visual" aria-hidden="true">AUDIO</div><audio ref={bind} src={props.url} controls onTimeUpdate={update} onPlay={() => props.onPlaybackChange(true)} onPause={() => props.onPlaybackChange(false)} onError={props.onResourceError} aria-label={props.title ?? 'Audio preview'} /></div>
+    return <div className="player-stage audio-stage"><div className="audio-visual" aria-hidden="true">{props.messages.audioAbbreviation}</div><audio ref={bind} src={props.url} controls onTimeUpdate={update} onPlay={() => props.onPlaybackChange(true)} onPause={() => props.onPlaybackChange(false)} onError={props.onResourceError} aria-label={props.title ?? props.messages.audioPreview} /></div>
   }
-  return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><video ref={bind} src={props.url} controls playsInline onTimeUpdate={update} onPlay={() => props.onPlaybackChange(true)} onPause={() => props.onPlaybackChange(false)} onError={props.onResourceError} aria-label={props.title ?? 'Video preview'} /></div>
+  return <div className={`player-stage aspect-${props.project.canvas.preset.replace(':', '-')}`}><video ref={bind} src={props.url} controls playsInline onTimeUpdate={update} onPlay={() => props.onPlaybackChange(true)} onPause={() => props.onPlaybackChange(false)} onError={props.onResourceError} aria-label={props.title ?? props.messages.videoPreview} /></div>
 }
 
-function PlayerControls({ controller, project }: { controller: EditorController; project: ProjectProjection }): React.JSX.Element {
+function PlayerControls({ controller, project, messages }: { controller: EditorController; project: ProjectProjection; messages: Messages }): React.JSX.Element {
   return (
-    <div className="transport" aria-label="Player controls">
+    <div className="transport" aria-label={messages.playerControls}>
       <button type="button" onClick={() => controller.seek(Math.max(0, controller.state.playheadFrame - Math.round(project.fps.numerator / project.fps.denominator * 5)))}>-5s</button>
-      <button type="button" className="primary-transport" onClick={controller.togglePlaying}>{controller.state.playing ? 'Pause' : 'Play'}</button>
+      <button type="button" className="primary-transport" onClick={controller.togglePlaying}>{controller.state.playing ? messages.pause : messages.play}</button>
       <button type="button" onClick={() => controller.seek(Math.min(project.durationFrames, controller.state.playheadFrame + Math.round(project.fps.numerator / project.fps.denominator * 5)))}>+5s</button>
-      <label className="scrubber"><span>Timeline position</span><input type="range" min={0} max={Math.max(1, project.durationFrames)} value={controller.state.playheadFrame} onChange={(event) => controller.seek(Number(event.target.value))} /></label>
+      <label className="scrubber"><span>{messages.timelinePosition}</span><input type="range" min={0} max={Math.max(1, project.durationFrames)} value={controller.state.playheadFrame} onChange={(event) => controller.seek(Number(event.target.value))} /></label>
       <output>{controller.state.playheadFrame}f</output>
     </div>
   )
@@ -373,13 +401,13 @@ function TimelinePanel({ controller, messages }: { controller: EditorController;
   const start = Math.min(state.timelineWindowStart, Math.max(0, ordered.length - 1))
   const visibleIds = new Set(ordered.slice(start, start + VIEW_LIMITS.virtualWindow).map(({ id }) => id))
   return (
-    <Panel title={messages.timeline} className="timeline-panel" actions={<VirtualControls start={start} total={ordered.length} onChange={controller.setTimelineWindow} />}>
+    <Panel title={messages.timeline} className="timeline-panel" actions={<VirtualControls start={start} total={ordered.length} onChange={controller.setTimelineWindow} messages={messages} />}>
       <div className="timeline-ruler" aria-hidden="true"><span>00:00</span><span>25%</span><span>50%</span><span>75%</span><span>{formatTime(frameToSeconds(project, project.durationFrames))}</span></div>
-      <div className="tracks" role="list" aria-label="Ordered timeline tracks">
+      <div className="tracks" role="list" aria-label={messages.orderedTimelineTracks}>
         {[...project.tracks].sort((a, b) => a.order - b.order).map((track) => (
           <div className="track-row" role="listitem" key={track.id}>
-            <div className="track-header"><strong>{track.name}</strong><small>{track.kind}{track.locked ? ' · locked' : ''}</small></div>
-            <div className={`track-lane track-${track.kind}`} aria-label={`${track.name} items`}>
+            <div className="track-header"><strong>{track.name}</strong><small>{trackKindLabel(messages, track.kind)}{track.locked ? ` · ${messages.locked}` : ''}</small></div>
+            <div className={`track-lane track-${track.kind}`} aria-label={`${track.name} · ${formatMessage(messages.trackItems, { count: project.items.filter((item) => item.trackId === track.id).length })}`}>
               {project.items.filter((item) => item.trackId === track.id && visibleIds.has(item.id)).map((item) => (
                 <button
                   type="button"
@@ -396,17 +424,17 @@ function TimelinePanel({ controller, messages }: { controller: EditorController;
               {track.kind === 'caption' && project.captions.slice(0, VIEW_LIMITS.virtualWindow).map((caption) => (
                 <button type="button" key={caption.id} className={state.selectedCaptionId === caption.id ? 'clip caption-clip selected' : 'clip caption-clip'} onClick={() => { controller.selectCaption(caption.id); controller.seek(caption.startFrame) }}>{caption.text}<small>{caption.startFrame}–{caption.endFrame}f</small></button>
               ))}
-              {!project.items.some((item) => item.trackId === track.id) && track.kind !== 'caption' && <span className="empty-lane">Drop/import media to populate</span>}
+              {!project.items.some((item) => item.trackId === track.id) && track.kind !== 'caption' && <span className="empty-lane">{messages.dropImportMedia}</span>}
             </div>
           </div>
         ))}
       </div>
-      <EditToolbar controller={controller} project={project} />
+      <EditToolbar controller={controller} project={project} messages={messages} />
     </Panel>
   )
 }
 
-function EditToolbar({ controller, project }: { controller: EditorController; project: ProjectProjection }): React.JSX.Element {
+function EditToolbar({ controller, project, messages }: { controller: EditorController; project: ProjectProjection; messages: Messages }): React.JSX.Element {
   const item = project.items.find(({ id }) => id === controller.state.selectedItemId)
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
@@ -419,16 +447,16 @@ function EditToolbar({ controller, project }: { controller: EditorController; pr
     setTrackId(item.trackId)
   }, [item])
   return (
-    <div className="edit-toolbar" aria-label="Manual timeline editing">
-      <button type="button" onClick={() => item && void splitAtPlayhead(controller, project, item)} disabled={!item}>Split at playhead</button>
-      <button type="button" className="danger-button" onClick={() => item && window.confirm('Delete this item? You can undo the edit.') && void controller.applyOperations([{ type: 'delete-item', itemId: item.id }], `Deleted ${item.id}`)} disabled={!item}>Delete item</button>
-      <label><span>Trim in (frame)</span><input type="number" min={item?.timelineStartFrame ?? 0} max={trimEnd - 1} value={trimStart} onChange={(event) => setTrimStart(Number(event.target.value))} disabled={!item} /></label>
-      <label><span>Trim out (frame)</span><input type="number" min={trimStart + 1} max={item ? item.timelineStartFrame + item.durationFrames : 1} value={trimEnd} onChange={(event) => setTrimEnd(Number(event.target.value))} disabled={!item} /></label>
-      <button type="button" disabled={!item} onClick={() => item && void controller.applyOperations([{ type: 'trim-item', itemId: item.id, startFrame: trimStart, endFrame: trimEnd }], `Trimmed ${item.id}`)}>Apply trim</button>
-      <label><span>Track</span><select value={trackId} onChange={(event) => setTrackId(event.target.value)} disabled={!item}>{compatibleTracks(project.tracks, item).map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}</select></label>
-      <button type="button" disabled={!item || !trackId} onClick={() => item && void controller.applyOperations([{ type: 'move-item', itemId: item.id, trackId, timelineStartFrame: item.timelineStartFrame }], `Moved ${item.id}`)}>Move track</button>
-      <label><span>Place before</span><select value={beforeItemId} onChange={(event) => setBeforeItemId(event.target.value)} disabled={!item}><option value="">End of track</option>{project.items.filter((candidate) => candidate.trackId === item?.trackId && candidate.id !== item?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.id}</option>)}</select></label>
-      <button type="button" disabled={!item} onClick={() => item && void controller.applyOperations([{ type: 'reorder-item', itemId: item.id, ...(beforeItemId ? { beforeItemId } : {}) }], `Reordered ${item.id}`)}>Reorder</button>
+    <div className="edit-toolbar" aria-label={messages.manualTimelineEditing}>
+      <button type="button" onClick={() => item && void splitAtPlayhead(controller, project, item, messages)} disabled={!item}>{messages.splitAtPlayhead}</button>
+      <button type="button" className="danger-button" onClick={() => item && window.confirm(messages.deleteItemConfirm) && void controller.applyOperations([{ type: 'delete-item', itemId: item.id }], formatMessage(messages.deleteSummary, { id: item.id }))} disabled={!item}>{messages.deleteItem}</button>
+      <label><span>{messages.trimIn} ({messages.frames})</span><input type="number" min={item?.timelineStartFrame ?? 0} max={trimEnd - 1} value={trimStart} onChange={(event) => setTrimStart(Number(event.target.value))} disabled={!item} /></label>
+      <label><span>{messages.trimOut} ({messages.frames})</span><input type="number" min={trimStart + 1} max={item ? item.timelineStartFrame + item.durationFrames : 1} value={trimEnd} onChange={(event) => setTrimEnd(Number(event.target.value))} disabled={!item} /></label>
+      <button type="button" disabled={!item} onClick={() => item && void controller.applyOperations([{ type: 'trim-item', itemId: item.id, startFrame: trimStart, endFrame: trimEnd }], formatMessage(messages.trimSummary, { id: item.id }))}>{messages.applyTrim}</button>
+      <label><span>{messages.track}</span><select value={trackId} onChange={(event) => setTrackId(event.target.value)} disabled={!item}>{compatibleTracks(project.tracks, item).map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}</select></label>
+      <button type="button" disabled={!item || !trackId} onClick={() => item && void controller.applyOperations([{ type: 'move-item', itemId: item.id, trackId, timelineStartFrame: item.timelineStartFrame }], formatMessage(messages.moveSummary, { id: item.id }))}>{messages.moveTrack}</button>
+      <label><span>{messages.placeBefore}</span><select value={beforeItemId} onChange={(event) => setBeforeItemId(event.target.value)} disabled={!item}><option value="">{messages.endOfTrack}</option>{project.items.filter((candidate) => candidate.trackId === item?.trackId && candidate.id !== item?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.id}</option>)}</select></label>
+      <button type="button" disabled={!item} onClick={() => item && void controller.applyOperations([{ type: 'reorder-item', itemId: item.id, ...(beforeItemId ? { beforeItemId } : {}) }], formatMessage(messages.reorderSummary, { id: item.id }))}>{messages.reorder}</button>
     </div>
   )
 }
@@ -448,16 +476,16 @@ function InspectorPanel(props: { controller: EditorController; item?: ItemProjec
     <Panel title={messages.inspector}>
       {!item && !caption ? <EmptyState>{messages.noSelection}</EmptyState> : item ? (
         <div className="field-grid">
-          <p className="selection-title"><strong>{item.id}</strong><span>{item.durationFrames} frames · {item.trackId}</span></p>
+          <p className="selection-title"><strong>{item.id}</strong><span>{item.durationFrames} {messages.frames} · {item.trackId}</span></p>
           <label><span>X</span><input type="number" value={x} onChange={(event) => setX(Number(event.target.value))} /></label>
           <label><span>Y</span><input type="number" value={y} onChange={(event) => setY(Number(event.target.value))} /></label>
-          <label><span>Scale</span><input type="number" min="0.01" max="10" step="0.05" value={scale} onChange={(event) => setScale(Number(event.target.value))} /></label>
-          <label><span>Opacity</span><input type="number" min="0" max="1" step="0.05" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></label>
-          <button type="button" onClick={() => void controller.applyOperations([{ type: 'update-transform', itemId: item.id, transform: { x, y, scaleX: scale, scaleY: scale }, opacity }], `Updated composition for ${item.id}`)}>Apply transform</button>
+          <label><span>{messages.scale}</span><input type="number" min="0.01" max="10" step="0.05" value={scale} onChange={(event) => setScale(Number(event.target.value))} /></label>
+          <label><span>{messages.opacity}</span><input type="number" min="0" max="1" step="0.05" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></label>
+          <button type="button" onClick={() => void controller.applyOperations([{ type: 'update-transform', itemId: item.id, transform: { x, y, scaleX: scale, scaleY: scale }, opacity }], formatMessage(messages.compositionSummary, { id: item.id }))}>{messages.applyTransform}</button>
         </div>
-      ) : <p>Caption <strong>{caption?.id}</strong> is selected. Edit text and placement in the Captions panel.</p>}
-      <fieldset className="aspect-controls"><legend>Canvas and fit</legend>{(['16:9', '9:16', '1:1'] as const).map((preset) => <button type="button" key={preset} aria-pressed={project.canvas.preset === preset} onClick={() => void controller.applyOperations([{ type: 'set-canvas', preset, fit: project.canvas.fit }], `Changed canvas to ${preset}`)}>{preset}</button>)}<label><span>Fit policy</span><select value={project.canvas.fit} onChange={(event) => void controller.applyOperations([{ type: 'set-canvas', preset: project.canvas.preset, fit: event.target.value as 'fit' | 'crop' | 'pad' }], `Changed fit policy`)}><option value="fit">Fit</option><option value="crop">Crop</option><option value="pad">Pad</option></select></label></fieldset>
-      <p className="boundary-note">Canvas geometry is deterministic; it does not track faces or infer a subject.</p>
+      ) : <p>{messages.captionSelected}: <strong>{caption?.id}</strong>. {messages.captions}</p>}
+      <fieldset className="aspect-controls"><legend>{messages.canvasAndFit}</legend>{(['16:9', '9:16', '1:1'] as const).map((preset) => <button type="button" key={preset} aria-pressed={project.canvas.preset === preset} onClick={() => void controller.applyOperations([{ type: 'set-canvas', preset, fit: project.canvas.fit }], formatMessage(messages.canvasSummary, { preset }))}>{preset}</button>)}<label><span>{messages.fitPolicy}</span><select value={project.canvas.fit} onChange={(event) => void controller.applyOperations([{ type: 'set-canvas', preset: project.canvas.preset, fit: event.target.value as 'fit' | 'crop' | 'pad' }], messages.fitSummary)}><option value="fit">{messages.fit}</option><option value="crop">{messages.crop}</option><option value="pad">{messages.pad}</option></select></label></fieldset>
+      <p className="boundary-note">{messages.canvasBoundary}</p>
     </Panel>
   )
 }
@@ -479,19 +507,22 @@ function CaptionPanel({ controller, messages }: { controller: EditorController; 
     const operation: TimelineOperation = selected
       ? { type: 'update-caption', captionId: selected.id, patch: { text: text.trim(), startFrame: start, endFrame: end, placement } }
       : { type: 'add-caption', caption: { id: `caption-${Date.now().toString(36)}`, trackId: captionTrack.id, startFrame: start, endFrame: end, text: text.trim(), placement } }
-    void controller.applyOperations([operation], selected ? `Updated ${selected.id}` : 'Added caption')
+    void controller.applyOperations(
+      [operation],
+      selected ? formatMessage(messages.updateCaptionSummary, { id: selected.id }) : messages.addCaptionSummary
+    )
   }
   return (
     <Panel title={messages.captions}>
       <div className="caption-layout">
         <ul className="caption-list">{project.captions.slice(0, VIEW_LIMITS.virtualWindow).map((caption) => <li key={caption.id}><button type="button" aria-pressed={selected?.id === caption.id} onClick={() => controller.selectCaption(caption.id)}><span>{caption.text}</span><small>{caption.startFrame}–{caption.endFrame}f</small></button></li>)}</ul>
         <div className="field-grid">
-          <label className="wide-field"><span>Caption text</span><textarea rows={3} value={text} maxLength={4096} onChange={(event) => setText(event.target.value)} /></label>
-          <label><span>Start frame</span><input type="number" min={0} value={start} onChange={(event) => setStart(Number(event.target.value))} /></label>
-          <label><span>End frame</span><input type="number" min={start + 1} max={Math.max(start + 1, project.durationFrames)} value={end} onChange={(event) => setEnd(Number(event.target.value))} /></label>
-          <label><span>Placement</span><select value={placement} onChange={(event) => setPlacement(event.target.value as typeof placement)}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label>
-          <button type="button" onClick={save}>{selected ? 'Update caption' : 'Add caption'}</button>
-          {selected && <button type="button" className="danger-button" onClick={() => window.confirm('Delete this caption? You can undo the edit.') && void controller.applyOperations([{ type: 'delete-caption', captionId: selected.id }], `Deleted ${selected.id}`)}>Delete caption</button>}
+          <label className="wide-field"><span>{messages.captionText}</span><textarea rows={3} value={text} maxLength={4096} onChange={(event) => setText(event.target.value)} /></label>
+          <label><span>{messages.startFrame}</span><input type="number" min={0} value={start} onChange={(event) => setStart(Number(event.target.value))} /></label>
+          <label><span>{messages.endFrame}</span><input type="number" min={start + 1} max={Math.max(start + 1, project.durationFrames)} value={end} onChange={(event) => setEnd(Number(event.target.value))} /></label>
+          <label><span>{messages.placement}</span><select value={placement} onChange={(event) => setPlacement(event.target.value as typeof placement)}><option value="top">{messages.top}</option><option value="center">{messages.center}</option><option value="bottom">{messages.bottom}</option></select></label>
+          <button type="button" onClick={save}>{selected ? messages.updateCaption : messages.addCaption}</button>
+          {selected && <button type="button" className="danger-button" onClick={() => window.confirm(messages.deleteCaptionConfirm) && void controller.applyOperations([{ type: 'delete-caption', captionId: selected.id }], formatMessage(messages.deleteCaptionSummary, { id: selected.id }))}>{messages.deleteCaption}</button>}
         </div>
       </div>
     </Panel>
@@ -501,8 +532,8 @@ function CaptionPanel({ controller, messages }: { controller: EditorController; 
 function RevisionPanel({ controller, messages }: { controller: EditorController; messages: Messages }): React.JSX.Element {
   const project = controller.state.project!
   return (
-    <Panel title={messages.revisions} actions={<span className="revision-badge">current r{project.currentRevision}</span>}>
-      <ol className="revision-list" reversed>{[...project.revisions].reverse().map((revision) => <li key={revision.revision} className={revision.revision === project.currentRevision ? 'current' : ''}><strong>r{revision.revision}</strong><span>{revision.summary}</span><small>{revision.author} · {formatTimestamp(revision.timestamp)}</small></li>)}</ol>
+    <Panel title={messages.revisions} actions={<span className="revision-badge">{messages.current} r{project.currentRevision}</span>}>
+      <ol className="revision-list" reversed>{[...project.revisions].reverse().map((revision) => <li key={revision.revision} className={revision.revision === project.currentRevision ? 'current' : ''}><strong>r{revision.revision}</strong><span>{revision.summary}</span><small>{revisionAuthorLabel(messages, revision.author)} · {formatTimestamp(revision.timestamp, controller.state.locale?.language)}</small></li>)}</ol>
     </Panel>
   )
 }
@@ -526,7 +557,7 @@ function AgentSyncPanel({ controller, messages }: { controller: EditorController
           ? `${messages.lastSync}: ${lastProjectChange.reason} · r${lastProjectChange.revision}`
           : messages.agentReady}</span>
       </div>
-      {agentRun ? <p className="subtle">{messages.legacyRun}: {agentRun.state}</p> : null}
+      {agentRun ? <p className="subtle">{messages.legacyRun}: {agentStateLabel(messages, agentRun.state)}</p> : null}
       <p className="boundary-note">{messages.unsupported}</p>
     </Panel>
   )
@@ -538,11 +569,11 @@ function PreviewPanel(props: { controller: EditorController; artifacts: Generate
   return (
     <Panel title={messages.preview}>
       <div className="button-row"><button type="button" onClick={() => void controller.startRender('proof-frame', 'none')}>{messages.proofFrame}</button><button type="button" onClick={() => void controller.startRender('preview', 'none')}>{messages.previewClip}</button></div>
-      {artifacts.length === 0 ? <EmptyState>No completed proof or preview artifacts.</EmptyState> : <ul className="artifact-list">{artifacts.map((artifact) => {
+      {artifacts.length === 0 ? <EmptyState>{messages.noProofArtifacts}</EmptyState> : <ul className="artifact-list">{artifacts.map((artifact) => {
         const ticket = ticketForArtifact(controller.state.renderTickets, artifact)
         const stale = ticket ? proofIsStale(ticket, project) : false
         const usesPlayer = artifactUsesPlayer(artifact)
-        return <li key={artifact.artifactId}><div><strong>{artifact.displayName}</strong><small>{formatBytes(artifact.byteSize)} · {artifact.mediaKind}</small></div>{stale && <span className="stale-badge">{messages.staleProof}</span>}<p>{messages.technicallyValidated}</p>{!usesPlayer && <p className="subtle">{messages.hostArtifactAction}</p>}<div className="button-row"><button type="button" disabled={artifact.availability !== 'available'} onClick={() => void controller.openArtifact(artifact)}>{usesPlayer ? messages.previewMedia : messages.openWithSystem}</button><button type="button" disabled={artifact.availability !== 'available'} onClick={() => void controller.revealArtifact(artifact)}>{messages.showInFolder}</button></div></li>
+        return <li key={artifact.artifactId}><div><strong>{artifact.displayName}</strong><small>{formatBytes(artifact.byteSize)} · {mediaKindLabel(messages, artifact.mediaKind)}</small></div>{stale && <span className="stale-badge">{messages.staleProof}</span>}<p>{messages.technicallyValidated}</p>{!usesPlayer && <p className="subtle">{messages.hostArtifactAction}</p>}<div className="button-row"><button type="button" disabled={artifact.availability !== 'available'} onClick={() => void controller.openArtifact(artifact)}>{usesPlayer ? messages.previewMedia : messages.openWithSystem}</button><button type="button" disabled={artifact.availability !== 'available'} onClick={() => void controller.revealArtifact(artifact)}>{messages.showInFolder}</button></div></li>
       })}</ul>}
     </Panel>
   )
@@ -552,23 +583,23 @@ function ExportPanel({ controller, messages }: { controller: EditorController; m
   const [captionMode, setCaptionMode] = useState<'none' | 'burned' | 'sidecar' | 'both'>('none')
   const [subtitleFormat, setSubtitleFormat] = useState<'srt' | 'vtt'>('srt')
   return (
-    <Panel title={messages.export} actions={<><label className="inline-field"><span>Captions</span><select value={captionMode} onChange={(event) => setCaptionMode(event.target.value as typeof captionMode)}><option value="none">None</option><option value="burned">Burned in</option><option value="sidecar">Sidecar</option><option value="both">Burned + sidecar</option></select></label>{(captionMode === 'sidecar' || captionMode === 'both') && <label className="inline-field"><span>Format</span><select value={subtitleFormat} onChange={(event) => setSubtitleFormat(event.target.value as typeof subtitleFormat)}><option value="srt">SRT</option><option value="vtt">WebVTT</option></select></label>}</>}>
-      <div className="button-row"><button type="button" onClick={() => void controller.startRender('h264-mp4', captionMode, subtitleFormat)}>{messages.exportVideo}</button><button type="button" onClick={() => void controller.startRender('audio-aac', 'none')}>Export audio</button></div>
-      {controller.state.jobs.length === 0 ? <EmptyState>{messages.emptyJobs}</EmptyState> : <ul className="job-list">{controller.state.jobs.map((job) => <JobRow key={job.id} job={job} controller={controller} />)}</ul>}
+    <Panel title={messages.export} actions={<><label className="inline-field"><span>{messages.captionsLabel}</span><select value={captionMode} onChange={(event) => setCaptionMode(event.target.value as typeof captionMode)}><option value="none">{messages.captionModeNone}</option><option value="burned">{messages.captionModeBurned}</option><option value="sidecar">{messages.captionModeSidecar}</option><option value="both">{messages.captionModeBoth}</option></select></label>{(captionMode === 'sidecar' || captionMode === 'both') && <label className="inline-field"><span>{messages.format}</span><select value={subtitleFormat} onChange={(event) => setSubtitleFormat(event.target.value as typeof subtitleFormat)}><option value="srt">SRT</option><option value="vtt">WebVTT</option></select></label>}</>}>
+      <div className="button-row"><button type="button" onClick={() => void controller.startRender('h264-mp4', captionMode, subtitleFormat)}>{messages.exportVideo}</button><button type="button" onClick={() => void controller.startRender('audio-aac', 'none')}>{messages.exportAudio}</button></div>
+      {controller.state.jobs.length === 0 ? <EmptyState>{messages.emptyJobs}</EmptyState> : <ul className="job-list">{controller.state.jobs.map((job) => <JobRow key={job.id} job={job} controller={controller} messages={messages} />)}</ul>}
     </Panel>
   )
 }
 
-function JobRow({ job, controller }: { job: JobSnapshot; controller: EditorController }): React.JSX.Element {
+function JobRow({ job, controller, messages }: { job: JobSnapshot; controller: EditorController; messages: Messages }): React.JSX.Element {
   const terminal = ['completed', 'failed', 'cancelled', 'interrupted'].includes(job.state)
   const progress = job.progress?.percentage ?? (job.progress?.completed !== undefined && job.progress.total ? job.progress.completed / job.progress.total * 100 : undefined)
   return (
     <li className={`job job-${job.state}`}>
-      <div><strong>{job.kind}</strong><small>{job.id} · attempt {job.executionAttempt}</small></div>
-      <span className="job-state">{job.state}</span>
-      <progress max={100} value={progress ?? (job.state === 'completed' ? 100 : undefined)} aria-label={`${job.kind} progress`} />
-      <p>{job.progress?.message ?? job.error?.message ?? 'Waiting for durable progress…'}</p>
-      {!terminal && <button type="button" className="danger-button" onClick={() => void controller.cancelJob(job.id)}>Cancel job</button>}
+      <div><strong>{jobKindLabel(messages, job.kind)}</strong><small>{job.id} · {formatMessage(messages.attempt, { attempt: job.executionAttempt })}</small></div>
+      <span className="job-state">{jobStateLabel(messages, job.state)}</span>
+      <progress max={100} value={progress ?? (job.state === 'completed' ? 100 : undefined)} aria-label={formatMessage(messages.progressLabel, { label: jobKindLabel(messages, job.kind), value: Math.round(progress ?? 0) })} />
+      <p>{job.progress?.message ?? job.error?.message ?? messages.waitingProgress}</p>
+      {!terminal && <button type="button" className="danger-button" onClick={() => void controller.cancelJob(job.id)}>{messages.cancelJob}</button>}
     </li>
   )
 }
@@ -581,15 +612,75 @@ function EmptyState({ children }: PropsWithChildren): React.JSX.Element { return
 function StatusNotice({ severity, children }: PropsWithChildren<{ severity: 'info' | 'warning' | 'error' }>): React.JSX.Element { return <div className={`status-notice status-${severity}`} role={severity === 'error' ? 'alert' : 'status'}>{children}</div> }
 function Spinner(): React.JSX.Element { return <span className="spinner" aria-hidden="true" /> }
 
-function VirtualControls(props: { start: number; total: number; onChange(start: number): void }): React.JSX.Element | null {
+function VirtualControls(props: { start: number; total: number; onChange(start: number): void; messages: Messages }): React.JSX.Element | null {
   if (props.total <= VIEW_LIMITS.virtualWindow) return null
-  return <div className="virtual-controls" aria-label="Virtual list window"><button type="button" onClick={() => props.onChange(Math.max(0, props.start - VIEW_LIMITS.virtualWindow))} disabled={props.start === 0}>Previous</button><span>{props.start + 1}–{Math.min(props.total, props.start + VIEW_LIMITS.virtualWindow)} / {props.total}</span><button type="button" onClick={() => props.onChange(Math.min(props.total - 1, props.start + VIEW_LIMITS.virtualWindow))} disabled={props.start + VIEW_LIMITS.virtualWindow >= props.total}>Next</button></div>
+  return <div className="virtual-controls" aria-label={props.messages.virtualList}><button type="button" onClick={() => props.onChange(Math.max(0, props.start - VIEW_LIMITS.virtualWindow))} disabled={props.start === 0}>{props.messages.previous}</button><span>{props.start + 1}–{Math.min(props.total, props.start + VIEW_LIMITS.virtualWindow)} / {props.total}</span><button type="button" onClick={() => props.onChange(Math.min(props.total - 1, props.start + VIEW_LIMITS.virtualWindow))} disabled={props.start + VIEW_LIMITS.virtualWindow >= props.total}>{props.messages.next}</button></div>
 }
 
-async function splitAtPlayhead(controller: EditorController, project: ProjectProjection, item: ItemProjection): Promise<void> {
+async function splitAtPlayhead(controller: EditorController, project: ProjectProjection, item: ItemProjection, messages: Messages): Promise<void> {
   const frame = controller.state.playheadFrame
   if (frame <= item.timelineStartFrame || frame >= item.timelineStartFrame + item.durationFrames) return
-  await controller.applyOperations([{ type: 'split-item', itemId: item.id, atFrame: frame }], `Split ${item.id} at ${frame}f`)
+  await controller.applyOperations(
+    [{ type: 'split-item', itemId: item.id, atFrame: frame }],
+    formatMessage(messages.splitSummary, { id: item.id, frame })
+  )
+}
+
+function connectionLabel(messages: Messages, state: EditorController['state']['connection']): string {
+  if (state === 'online') return messages.connected
+  if (state === 'offline') return messages.offline
+  if (state === 'reconnecting') return messages.reconnecting
+  return messages.connecting
+}
+
+function revisionAuthorLabel(messages: Messages, author: string): string {
+  if (author === 'agent') return messages.revisionAuthorAgent
+  if (author === 'system') return messages.revisionAuthorSystem
+  if (author === 'manual' || author === 'user') return messages.revisionAuthorManual
+  return author
+}
+
+function agentStateLabel(messages: Messages, state: string): string {
+  const labels: Record<string, string> = {
+    queued: messages.agentStateQueued,
+    running: messages.agentStateRunning,
+    'waiting-approval': messages.agentStateWaitingApproval,
+    'waiting-user-input': messages.agentStateWaitingInput,
+    completed: messages.agentStateCompleted,
+    failed: messages.agentStateFailed,
+    cancelled: messages.agentStateCancelled,
+    'budget-exhausted': messages.agentStateBudgetExhausted
+  }
+  return labels[state] ?? state
+}
+
+function jobStateLabel(messages: Messages, state: JobSnapshot['state']): string {
+  if (state === 'queued') return messages.jobStateQueued
+  if (state === 'running') return messages.jobStateRunning
+  if (state === 'completed') return messages.jobStateCompleted
+  if (state === 'failed') return messages.jobStateFailed
+  if (state === 'cancelled') return messages.jobStateCancelled
+  return messages.jobStateInterrupted
+}
+
+function jobKindLabel(messages: Messages, kind: string): string {
+  if (kind === 'media.ffmpeg') return messages.jobKindRender
+  if (kind === 'media.ffprobe') return messages.jobKindProbe
+  if (kind.includes('transcri')) return messages.jobKindTranscribe
+  return kind
+}
+
+function trackKindLabel(messages: Messages, kind: TrackProjection['kind']): string {
+  if (kind === 'video') return messages.trackKindVideo
+  if (kind === 'audio') return messages.trackKindAudio
+  return messages.trackKindCaption
+}
+
+function mediaKindLabel(messages: Messages, kind: GeneratedArtifact['mediaKind']): string {
+  if (kind === 'video') return messages.mediaKindVideo
+  if (kind === 'audio') return messages.mediaKindAudio
+  if (kind === 'image') return messages.mediaKindImage
+  return messages.mediaKindSubtitle
 }
 
 function compatibleTracks(tracks: TrackProjection[], item?: ItemProjection): TrackProjection[] {
@@ -631,7 +722,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string, locale?: string): string {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale)
 }

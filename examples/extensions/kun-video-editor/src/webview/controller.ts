@@ -26,6 +26,7 @@ import {
   type RenderTicket,
   type TimelineOperation
 } from './model.js'
+import { formatMessage, messagesFor, type MessageKey } from './i18n.js'
 
 const TERMINAL_AGENT_STATES = new Set(['completed', 'failed', 'cancelled', 'budget-exhausted'])
 const TERMINAL_JOB_STATES = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
@@ -69,8 +70,13 @@ export type EditorController = {
 export function useEditorController(client: ExtensionHostClient): EditorController {
   const [state, dispatch] = useReducer(editorReducer, INITIAL_EDITOR_STATE)
   const stateRef = useRef(state)
+  const localeRef = useRef(state.locale)
   const ownedLeaseIds = useRef(new Set<string>())
   stateRef.current = state
+
+  const copy = useCallback((key: MessageKey, values?: Readonly<Record<string, string | number>>): string => {
+    return formatMessage(messagesFor(localeRef.current)[key], values)
+  }, [])
 
   const pushNotice = useCallback((notice: Omit<EditorNotice, 'id'> & { id?: string }) => {
     dispatch({
@@ -81,16 +87,16 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
 
   const execute = useCallback(async (action: string, payload: JsonObject = {}): Promise<Record<string, unknown>> => {
     const result = await client.commands.executeCommand<JsonValue>(EDITOR_COMMAND, { action, payload })
-    const outer = asRecord(result, `editor command ${action}`)
+    const outer = asRecord(result, copy('invalidHostResponse'))
     return isRecord(outer.content) ? outer.content : outer
-  }, [client])
+  }, [client, copy])
 
   const loadProject = useCallback(async (projectId: string): Promise<ProjectProjection> => {
     const content = await execute('project.get', { projectId })
-    const project = projectFrom(content)
+    const project = projectFrom(content, copy('invalidProjectProjection'))
     dispatch({ type: 'project', value: project })
     return project
-  }, [execute])
+  }, [copy, execute])
 
   const loadProjects = useCallback(async (): Promise<ProjectSummary[]> => {
     const content = await execute('project.list')
@@ -115,10 +121,10 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       pushNotice({
         id: 'run-unavailable',
         severity: 'warning',
-        message: 'The previous Agent run is no longer available.'
+        message: copy('previousAgentUnavailable')
       })
     }
-  }, [client, pushNotice])
+  }, [client, copy, pushNotice])
 
   const refreshAll = useCallback(async (): Promise<void> => {
     dispatch({ type: 'reconnect' })
@@ -132,23 +138,51 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       dispatch({ type: 'connection', value: 'online' })
     } catch (error) {
       dispatch({ type: 'connection', value: 'offline' })
-      pushNotice(classifyError(error, 'Reconnect failed'))
+      pushNotice(classifyError(error, copy('reconnectFailed'), copy('completeProtectedInteraction'), true))
     }
-  }, [loadProject, loadProjects, pushNotice, refreshJobs, restoreRun])
+  }, [copy, loadProject, loadProjects, pushNotice, refreshJobs, restoreRun])
+
+  useEffect(() => {
+    let disposed = false
+    let themeChanged = false
+    let localeChanged = false
+    const themeSubscription = client.ui.onDidChangeTheme((value) => {
+      themeChanged = true
+      dispatch({ type: 'theme', value })
+    })
+    const localeSubscription = client.ui.onDidChangeLocale((value) => {
+      localeChanged = true
+      localeRef.current = value
+      dispatch({ type: 'locale', value })
+    })
+    void client.ui.getTheme().then((value) => {
+      if (!disposed && !themeChanged) dispatch({ type: 'theme', value })
+    }).catch((error) => {
+      if (!disposed) pushNotice(classifyError(error, copy('hostClientError'), copy('completeProtectedInteraction'), true))
+    })
+    void client.ui.getLocale().then((value) => {
+      if (disposed || localeChanged) return
+      localeRef.current = value
+      dispatch({ type: 'locale', value })
+    }).catch((error) => {
+      if (!disposed) pushNotice(classifyError(error, copy('hostClientError'), copy('completeProtectedInteraction'), true))
+    })
+    return () => {
+      disposed = true
+      void themeSubscription.dispose()
+      void localeSubscription.dispose()
+    }
+  }, [client, copy, pushNotice])
 
   useEffect(() => {
     let disposed = false
     void (async () => {
       try {
-        const [theme, locale, restored, projects] = await Promise.all([
-          client.ui.getTheme(),
-          client.ui.getLocale(),
+        const [restored, projects] = await Promise.all([
           client.ui.getViewState<JsonValue>(),
           loadProjects()
         ])
         if (disposed) return
-        dispatch({ type: 'theme', value: theme })
-        dispatch({ type: 'locale', value: locale })
         const persisted = persistedState(restored)
         dispatch({ type: 'initialized', ...(persisted ? { persisted } : {}) })
         await refreshJobs()
@@ -156,30 +190,28 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
           await loadProject(persisted.projectId)
         } else {
           const active = await execute('project.active')
-          if (isRecord(active.project)) dispatch({ type: 'project', value: projectFrom(active) })
+          if (isRecord(active.project)) dispatch({ type: 'project', value: projectFrom(active, copy('invalidProjectProjection')) })
         }
         await restoreRun(persisted?.activeRunId)
       } catch (error) {
         if (disposed) return
         dispatch({ type: 'initialized' })
         dispatch({ type: 'connection', value: 'offline' })
-        pushNotice(classifyError(error, 'The editor could not initialize'))
+        pushNotice(classifyError(error, copy('editorInitializeFailed'), copy('completeProtectedInteraction'), true))
       }
     })()
     return () => { disposed = true }
-  }, [client, execute, loadProject, loadProjects, pushNotice, refreshJobs, restoreRun])
+  }, [client, copy, execute, loadProject, loadProjects, pushNotice, refreshJobs, restoreRun])
 
   useEffect(() => {
-    const themeSubscription = client.ui.onDidChangeTheme((value) => dispatch({ type: 'theme', value }))
-    const localeSubscription = client.ui.onDidChangeLocale((value) => dispatch({ type: 'locale', value }))
-    const errorSubscription = client.onDidError((error) => pushNotice(classifyError(error, 'Host client error')))
+    const errorSubscription = client.onDidError((error) => pushNotice(classifyError(error, copy('hostClientError'), copy('completeProtectedInteraction'), true)))
     const messageSubscription = client.ui.onDidReceiveMessage((message) => {
       if (message.channel === 'kun.extension.view.overflow') {
         void refreshAll()
         return
       }
       if (message.channel === 'kun-video-editor.project-changed') {
-        const change = projectChange(message.payload)
+        const change = projectChange(message.payload, copy('projectChanged'))
         if (change) dispatch({ type: 'project-change', value: change })
         if (change && change.projectId === stateRef.current.project?.id) void loadProject(change.projectId)
         return
@@ -192,22 +224,20 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       }
     })
     return () => {
-      void themeSubscription.dispose()
-      void localeSubscription.dispose()
       void errorSubscription.dispose()
       void messageSubscription.dispose()
     }
-  }, [client, loadProject, pushNotice, refreshAll])
+  }, [client, copy, loadProject, pushNotice, refreshAll])
 
   useEffect(() => {
     if (!state.initialized) return
     const timeout = setTimeout(() => {
       void client.ui.setViewState(toPersistedState(stateRef.current)).catch((error) => {
-        pushNotice(classifyError(error, 'View state could not be saved'))
+        pushNotice(classifyError(error, copy('viewStateSaveFailed'), copy('completeProtectedInteraction'), true))
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [client, pushNotice, state.agentRun?.id, state.initialized, state.playheadFrame, state.project?.id, state.renderTickets, state.selectedItemId, state.transcriptWindowStart])
+  }, [client, copy, pushNotice, state.agentRun?.id, state.initialized, state.playheadFrame, state.project?.id, state.renderTickets, state.selectedItemId, state.transcriptWindowStart])
 
   useEffect(() => {
     const run = state.agentRun
@@ -230,13 +260,13 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
           void loadProject(stateRef.current.project.id)
         }
       })
-    }).catch((error) => pushNotice(classifyError(error, 'Agent event stream disconnected')))
+    }).catch((error) => pushNotice(classifyError(error, copy('agentStreamDisconnected'), copy('completeProtectedInteraction'), true)))
     return () => {
       disposed = true
       void eventSubscription?.dispose()
       void subscription?.dispose()
     }
-  }, [client, loadProject, pushNotice, state.agentRun?.id, state.reconnectToken])
+  }, [client, copy, loadProject, pushNotice, state.agentRun?.id, state.reconnectToken])
 
   const activeJobsKey = useMemo(() => state.jobs
     .filter(({ state: jobState }) => !TERMINAL_JOB_STATES.has(jobState))
@@ -263,17 +293,17 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
           pushNotice({
             id: `job-gap-${job.id}`,
             severity: 'warning',
-            message: 'Some retained job progress expired; the current durable snapshot was restored.'
+            message: copy('jobProgressExpired')
           })
         }
         disposables.push(subscription.onEvent((event) => dispatch({ type: 'job-event', value: event })))
-      }).catch((error) => pushNotice(classifyError(error, `Job ${job.id} disconnected`)))
+      }).catch((error) => pushNotice(classifyError(error, `${copy('jobDisconnected')} ${job.id}`, copy('completeProtectedInteraction'), true)))
     }
     return () => {
       disposed = true
       for (const disposable of disposables) void disposable.dispose()
     }
-  }, [activeJobsKey, client, pushNotice, state.reconnectToken])
+  }, [activeJobsKey, client, copy, pushNotice, state.reconnectToken])
 
   useEffect(() => () => {
     for (const leaseId of ownedLeaseIds.current) {
@@ -295,23 +325,28 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
         })
         await loadProject(stateRef.current.project.id).catch(() => undefined)
       }
-      pushNotice(classifyError(error, 'Editor operation failed'))
+      pushNotice(classifyError(
+        error,
+        copy('editorOperationFailed'),
+        copy('completeProtectedInteraction'),
+        isOpaqueHostError(error)
+      ))
     } finally {
       dispatch({ type: 'busy', value: false })
     }
-  }, [loadProject, pushNotice])
+  }, [copy, loadProject, pushNotice])
 
   const createProject = useCallback(async (name: string, preset: CanvasPreset): Promise<void> => {
     await withBusy(async () => {
       const normalized = name.trim().slice(0, 160)
-      if (!normalized) throw new Error('Project name is required.')
+      if (!normalized) throw new Error(copy('projectNameRequired'))
       const idBase = normalized.toLowerCase().replace(/[^a-z0-9._~-]+/gu, '-').replace(/^-|-$/gu, '') || 'video'
       const projectId = `${idBase.slice(0, 96)}-${Date.now().toString(36)}`
       const content = await execute('project.create', { projectId, name: normalized, canvasPreset: preset })
-      dispatch({ type: 'project', value: projectFrom(content) })
+      dispatch({ type: 'project', value: projectFrom(content, copy('invalidProjectProjection')) })
       await loadProjects()
     })
-  }, [execute, loadProjects, withBusy])
+  }, [copy, execute, loadProjects, withBusy])
 
   const openProject = useCallback(async (projectId: string): Promise<void> => {
     await withBusy(async () => { await loadProject(projectId) })
@@ -319,12 +354,12 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
 
   const importMedia = useCallback(async (): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       const selection = await client.media.pickFiles({
         multiple: true,
         maxFiles: 8,
         filters: [{
-          name: 'Video and audio',
+          name: copy('chooseMedia'),
           extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4a', 'mp3', 'wav'],
           mimeTypes: ['video/*', 'audio/*']
         }]
@@ -344,7 +379,7 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       await loadProject(project.id)
       await loadProjects()
     })
-  }, [client, execute, loadProject, loadProjects, withBusy])
+  }, [client, copy, execute, loadProject, loadProjects, withBusy])
 
   const openMediaHandle = useCallback(async (handleId: string): Promise<void> => {
     const existing = stateRef.current.leases[handleId]
@@ -372,15 +407,15 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
   }, [client])
 
   const openAsset = useCallback(async (assetId: string): Promise<void> => {
-    const project = requiredProject(stateRef.current)
+    const project = requiredProject(stateRef.current, copy('openProjectFirst'))
     const asset = project.assets.find(({ id }) => id === assetId)
     if (!asset?.mediaHandleId) {
-      pushNotice({ id: 'asset-unavailable', severity: 'warning', message: 'This asset has no available media handle.' })
+      pushNotice({ id: 'asset-unavailable', severity: 'warning', message: copy('assetUnavailable') })
       return
     }
     dispatch({ type: 'selection', assetId })
     await withBusy(() => openMediaHandle(asset.mediaHandleId!))
-  }, [openMediaHandle, pushNotice, withBusy])
+  }, [copy, openMediaHandle, pushNotice, withBusy])
 
   const refreshActiveLease = useCallback(async (): Promise<void> => {
     const handleId = stateRef.current.activeMediaHandleId
@@ -400,7 +435,7 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
 
   const applyOperations = useCallback(async (operations: TimelineOperation[], summary: string): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       await execute('project.update', {
         projectId: project.id,
         expectedRevision: project.currentRevision,
@@ -410,29 +445,29 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       await loadProject(project.id)
       await loadProjects()
     })
-  }, [execute, loadProject, loadProjects, withBusy])
+  }, [copy, execute, loadProject, loadProjects, withBusy])
 
   const history = useCallback(async (action: 'project.undo' | 'project.redo'): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       await execute(action, { projectId: project.id, expectedRevision: project.currentRevision })
       await loadProject(project.id)
       await loadProjects()
     })
-  }, [execute, loadProject, loadProjects, withBusy])
+  }, [copy, execute, loadProject, loadProjects, withBusy])
 
   const undo = useCallback(() => history('project.undo'), [history])
   const redo = useCallback(() => history('project.redo'), [history])
 
   const readScript = useCallback(async (): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       const content = await execute('script.read', { projectId: project.id, expectedRevision: project.currentRevision })
       const markdown = typeof content.timelineMarkdown === 'string' ? content.timelineMarkdown : ''
       const digest = typeof content.digest === 'string' ? content.digest : ''
       dispatch({ type: 'script', revision: safeInteger(content.currentRevision) ?? project.currentRevision, digest, markdown })
     })
-  }, [execute, withBusy])
+  }, [copy, execute, withBusy])
 
   const editScript = useCallback((markdown: string) => dispatch({ type: 'script-edit', markdown }), [])
 
@@ -440,27 +475,27 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
     ranges: Array<{ assetId: string; startUs: number; endUs: number; reason?: 'filler' | 'silence' | 'selection' }>
   ): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       const script = stateRef.current.script
-      if (!script) throw new Error('Read timeline.md before applying transcript ranges.')
-      if (ranges.length === 0 || ranges.length > 2_000) throw new Error('Provide 1 to 2,000 explicit timed source ranges.')
+      if (!script) throw new Error(copy('readScriptFirst'))
+      if (ranges.length === 0 || ranges.length > 2_000) throw new Error(copy('rangesRequired'))
       await execute('script.apply', {
         projectId: project.id,
         expectedRevision: project.currentRevision,
         timelineMarkdown: script.markdown,
         ranges: ranges as unknown as JsonValue,
-        summary: 'Applied reviewed transcript ranges from the full-page editor'
+        summary: copy('scriptApplySummary')
       })
       await loadProject(project.id)
       await readScript()
     })
-  }, [execute, loadProject, readScript, withBusy])
+  }, [copy, execute, loadProject, readScript, withBusy])
 
   const startAgent = useCallback(async (prompt: string): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       const input = prompt.trim()
-      if (!input) throw new Error('Describe the editing goal before starting the Agent.')
+      if (!input) throw new Error(copy('agentGoalRequired'))
       const created = await client.agent.createRun({
         input,
         profileId: 'video-editor',
@@ -470,27 +505,27 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       })
       dispatch({ type: 'agent-run', value: created.run })
     })
-  }, [client, withBusy])
+  }, [client, copy, withBusy])
 
   const steerAgent = useCallback(async (prompt: string): Promise<void> => {
     await withBusy(async () => {
       const run = stateRef.current.agentRun
-      if (!run) throw new Error('No Agent run is active.')
+      if (!run) throw new Error(copy('noAgentRun'))
       const input = prompt.trim()
-      if (!input) throw new Error('Guidance cannot be empty.')
+      if (!input) throw new Error(copy('guidanceEmpty'))
       const result = await client.agent.steer({ runId: run.id, input })
       dispatch({ type: 'agent-run', value: result.run })
     })
-  }, [client, withBusy])
+  }, [client, copy, withBusy])
 
   const cancelAgent = useCallback(async (): Promise<void> => {
     const run = stateRef.current.agentRun
     if (!run) return
     await withBusy(async () => {
-      const result = await client.agent.cancel({ runId: run.id, reason: 'Cancelled from the video editor review checkpoint' })
+      const result = await client.agent.cancel({ runId: run.id, reason: copy('agentCanceledByUser') })
       dispatch({ type: 'agent-run', value: result.run })
     })
-  }, [client, withBusy])
+  }, [client, copy, withBusy])
 
   const startRender = useCallback(async (
     kind: RenderTicket['renderKind'],
@@ -498,12 +533,12 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
     subtitleFormat: 'srt' | 'vtt' = 'srt'
   ): Promise<void> => {
     await withBusy(async () => {
-      const project = requiredProject(stateRef.current)
+      const project = requiredProject(stateRef.current, copy('openProjectFirst'))
       const extension = kind === 'proof-frame' ? 'png' : kind === 'audio-aac' ? 'm4a' : 'mp4'
       const mimeType = kind === 'proof-frame' ? 'image/png' : kind === 'audio-aac' ? 'audio/mp4' : 'video/mp4'
       const picked = await client.media.pickSaveTarget({
         suggestedName: `${project.id}-revision-${project.currentRevision}.${extension}`,
-        filters: [{ name: 'Rendered media', extensions: [extension], mimeTypes: [mimeType] }]
+        filters: [{ name: copy('chooseRenderedMedia'), extensions: [extension], mimeTypes: [mimeType] }]
       })
       if (picked.outcome === 'cancelled') return
       let subtitleTarget: typeof picked.target | undefined
@@ -511,7 +546,7 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
         const subtitle = await client.media.pickSaveTarget({
           suggestedName: `${project.id}-revision-${project.currentRevision}.${subtitleFormat}`,
           filters: [{
-            name: subtitleFormat === 'srt' ? 'SubRip captions' : 'WebVTT captions',
+            name: subtitleFormat === 'srt' ? copy('chooseSubRipCaptions') : copy('chooseWebVttCaptions'),
             extensions: [subtitleFormat],
             mimeTypes: [subtitleFormat === 'srt' ? 'application/x-subrip' : 'text/vtt']
           }]
@@ -536,7 +571,7 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
         } : {}),
         idempotencyKey: `${project.id}-${project.currentRevision}-${kind}-${Date.now().toString(36)}`
       })
-      if (typeof content.jobId !== 'string') throw new Error('Render did not return a durable job ID.')
+      if (typeof content.jobId !== 'string') throw new Error(copy('renderJobMissing'))
       const ticket: RenderTicket = {
         jobId: content.jobId,
         projectId: project.id,
@@ -548,18 +583,18 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
       const snapshot = await client.jobs.get(ticket.jobId)
       dispatch({ type: 'jobs', value: [...stateRef.current.jobs, snapshot] })
     })
-  }, [client, execute, withBusy])
+  }, [client, copy, execute, withBusy])
 
   const cancelJob = useCallback(async (jobId: string): Promise<void> => {
     await withBusy(async () => {
-      const result = await client.jobs.cancel({ jobId, reason: 'Cancelled from the video editor export panel' })
+      const result = await client.jobs.cancel({ jobId, reason: copy('renderCanceledByUser') })
       dispatch({ type: 'jobs', value: stateRef.current.jobs.map((job) => job.id === jobId ? result.snapshot : job) })
     })
-  }, [client, withBusy])
+  }, [client, copy, withBusy])
 
   const openArtifact = useCallback(async (artifact: GeneratedArtifact): Promise<void> => {
     if (artifact.availability !== 'available') {
-      pushNotice({ id: `artifact-${artifact.artifactId}`, severity: 'warning', message: 'This generated artifact is unavailable.' })
+      pushNotice({ id: `artifact-${artifact.artifactId}`, severity: 'warning', message: copy('artifactUnavailable') })
       return
     }
     if (artifactUsesPlayer(artifact)) {
@@ -569,21 +604,21 @@ export function useEditorController(client: ExtensionHostClient): EditorControll
     await withBusy(async () => {
       await client.media.performArtifactAction({ artifactId: artifact.artifactId, action: 'open' })
     })
-  }, [client, openMediaHandle, pushNotice, withBusy])
+  }, [client, copy, openMediaHandle, pushNotice, withBusy])
 
   const revealArtifact = useCallback(async (artifact: GeneratedArtifact): Promise<void> => {
     if (artifact.availability !== 'available') {
       pushNotice({
         id: `artifact-${artifact.artifactId}`,
         severity: 'warning',
-        message: 'This generated artifact is unavailable.'
+        message: copy('artifactUnavailable')
       })
       return
     }
     await withBusy(async () => {
       await client.media.performArtifactAction({ artifactId: artifact.artifactId, action: 'reveal' })
     })
-  }, [client, pushNotice, withBusy])
+  }, [client, copy, pushNotice, withBusy])
 
   return {
     state,
@@ -622,20 +657,26 @@ export function artifactUsesPlayer(artifact: GeneratedArtifact): boolean {
   return artifact.mediaKind === 'video' || artifact.mediaKind === 'audio' || artifact.mediaKind === 'image'
 }
 
-export function classifyError(error: unknown, fallback: string): Omit<EditorNotice, 'id'> {
+export function classifyError(
+  error: unknown,
+  fallback: string,
+  interactionGuidance = 'Complete the protected desktop interaction and retry.',
+  preferFallback = false
+): Omit<EditorNotice, 'id'> {
   const api = error instanceof ExtensionApiError ? error : undefined
   const code = api?.code ?? (isRecord(error) && typeof error.code === 'string' ? error.code : '')
-  const message = error instanceof Error && error.message ? error.message.slice(0, 1_000) : fallback
-  const interactionRequired = /INTERACTION_REQUIRED|interaction.required/iu.test(code) || /interaction required/iu.test(message)
+  const rawMessage = error instanceof Error && error.message ? error.message.slice(0, 1_000) : ''
+  const message = preferFallback || !rawMessage ? fallback : rawMessage
+  const interactionRequired = /INTERACTION_REQUIRED|interaction.required/iu.test(code) || /interaction required/iu.test(rawMessage)
   return {
     severity: interactionRequired ? 'warning' : 'error',
-    message: interactionRequired ? `${message} Complete the protected desktop interaction and retry.` : message,
+    message: interactionRequired ? `${message} ${interactionGuidance}` : message,
     interactionRequired,
     retryable: api?.retryable ?? true
   }
 }
 
-function projectFrom(content: Record<string, unknown>): ProjectProjection {
+function projectFrom(content: Record<string, unknown>, invalidMessage: string): ProjectProjection {
   const value = isRecord(content.project) ? content.project : content
   if (
     value.schemaVersion !== 1 ||
@@ -644,7 +685,7 @@ function projectFrom(content: Record<string, unknown>): ProjectProjection {
     !isRecord(value.fps) ||
     !isRecord(value.canvas) ||
     !Number.isSafeInteger(value.currentRevision)
-  ) throw new Error('Host returned an invalid video project projection.')
+  ) throw new Error(invalidMessage)
   return value as unknown as ProjectProjection
 }
 
@@ -663,26 +704,26 @@ function persistedState(value: JsonValue | undefined): PersistedEditorState | un
   }
 }
 
-function projectChange(value: JsonValue): ProjectChange | undefined {
+function projectChange(value: JsonValue, fallbackReason: string): ProjectChange | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.projectId !== 'string') return undefined
   return {
     schemaVersion: 1,
     projectId: value.projectId,
     revision: safeInteger(value.revision) ?? 0,
-    reason: typeof value.reason === 'string' ? value.reason.slice(0, 256) : 'changed',
+    reason: typeof value.reason === 'string' ? value.reason.slice(0, 256) : fallbackReason,
     changedIds: Array.isArray(value.changedIds)
       ? value.changedIds.filter((item): item is string => typeof item === 'string').slice(0, 2_000)
       : []
   }
 }
 
-function requiredProject(state: EditorState): ProjectProjection {
-  if (!state.project) throw new Error('Open a project before performing this operation.')
+function requiredProject(state: EditorState, missingMessage: string): ProjectProjection {
+  if (!state.project) throw new Error(missingMessage)
   return state.project
 }
 
-function asRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`Host returned an invalid ${label} response.`)
+function asRecord(value: unknown, invalidMessage: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(invalidMessage)
   return value
 }
 
@@ -727,6 +768,11 @@ function isRevokedMediaError(error: unknown): boolean {
   const code = error instanceof ExtensionApiError ? error.code : isRecord(error) ? error.code : undefined
   const message = error instanceof Error ? error.message : ''
   return /MEDIA_(?:HANDLE_)?REVOKED|MEDIA_NOT_FOUND/iu.test(String(code)) || /media (?:handle )?(?:was )?(?:revoked|replaced|not found)/iu.test(message)
+}
+
+function isOpaqueHostError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  return /error invoking remote method|extension operation failed/iu.test(message)
 }
 
 function agentEventChangesProject(event: AgentRunEvent): boolean {

@@ -32,6 +32,13 @@ export function useExtensionContributionLoadState(): ExtensionContributionLoadSt
   )
 }
 
+export function isExtensionContributionSnapshotReady(
+  state: ExtensionContributionLoadState,
+  workspaceRoot: string
+): boolean {
+  return state.status === 'ready' && state.workspaceRoot === workspaceRoot
+}
+
 export function workbenchContextForRoute(
   route: AppRoute,
   workspaceRoot: string,
@@ -95,12 +102,13 @@ export function useExtensionContributionBootstrap(
 
 export function useWorkbenchContributions<K extends WorkbenchContributionPoint>(
   point: K,
-  context: WorkbenchContext
+  context: WorkbenchContext,
+  ready = true
 ): RegisteredContribution<K>[] {
   useSyncExternalStore(
     workbenchContributionRegistry.subscribe,
     workbenchContributionRegistry.getRevision,
     workbenchContributionRegistry.getRevision
   )
-  return workbenchContributionRegistry.list(point, context)
+  return ready ? workbenchContributionRegistry.list(point, context) : []
 }

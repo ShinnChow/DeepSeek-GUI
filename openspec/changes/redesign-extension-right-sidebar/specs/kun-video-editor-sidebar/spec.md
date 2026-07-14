@@ -14,6 +14,17 @@ The video Webview SHALL provide project selection, player, timeline, media and t
 - **WHEN** the video editor View opens in the right panel
 - **THEN** its controls SHALL reflow into a bounded vertical workflow without horizontal page overflow or hiding the current project and revision
 
+### Requirement: Docked editor follows Kun appearance settings
+The video Webview SHALL apply Kun's current theme, text direction, and locale independently from project and job availability. It SHALL provide complete English and Simplified Chinese user-visible copy and SHALL react to Kun appearance changes while the panel remains open.
+
+#### Scenario: Project loading fails during initialization
+- **WHEN** Kun reports a Chinese locale and light theme but the first video project request fails
+- **THEN** the editor SHALL still render its failure and recovery UI in Chinese with the light theme
+
+#### Scenario: User changes Kun language while the editor is open
+- **WHEN** the user changes Kun from English to Simplified Chinese or back
+- **THEN** the open video editor SHALL update its labels and document language without recreating the View Session
+
 ### Requirement: Main conversation is the primary Agent surface
 The docked video editor SHALL identify the main Kun conversation as the primary place to ask for Agent editing. The panel SHALL expose the active project and revision to the registered video tools and SHALL show bounded synchronization status instead of requiring a second embedded Agent prompt surface.
 

@@ -24,3 +24,12 @@
 - [x] 4.2 Run repository typecheck, lint, test, build, and OpenSpec validation
 - [x] 4.3 Verify the bundled video editor in the running app as a direct right-rail panel beside the main conversation
 - [x] 4.4 Commit the completed redesign on the local `develop` branch
+
+## 5. Real-app usability follow-up
+
+- [x] 5.1 Use the active thread workspace consistently for contribution discovery, visibility, commands, View Sessions, and extension panel rendering
+- [x] 5.2 Supply the admitted active/trusted SDK workspace context whenever a workspace-scoped View activates or reactivates its Node Host
+- [x] 5.3 Make video-editor theme and locale initialization independent from project/runtime requests, retain live Kun setting updates, and translate all visible reference-editor copy
+- [x] 5.4 Add renderer, runtime, and video Webview regressions for workspace alignment, View activation context, failed initialization, and live locale switching
+- [x] 5.5 Align the Desktop Host and Kun Runtime guest-safe View policies so permitted jobs and brokered-media methods work from the sandboxed editor
+- [x] 5.6 Run focused and repository-wide validation, verify the panel in the running app in Chinese and English, and commit the follow-up on local `develop`

@@ -1,5 +1,6 @@
 import { AlertTriangle, RefreshCw, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useTranslation } from 'react-i18next'
 import { HostMessageSchema, type HostMessage } from '@kun/extension-api'
 import type { RegisteredContribution } from './contribution-registry'
 import {
@@ -62,6 +63,7 @@ export function ExtensionWebview({
   initialMessages?: readonly HostMessage[]
   onClose?: () => void
 }): ReactElement {
+  const { t } = useTranslation('common')
   const [attempt, setAttempt] = useState(0)
   const [session, setSession] = useState<ExtensionViewSession | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -119,10 +121,10 @@ export function ExtensionWebview({
   useEffect(() => {
     const webview = webviewRef.current
     if (!webview || !session) return
-    const onCrash = (): void => setFailure('The extension View process exited unexpectedly.')
+    const onCrash = (): void => setFailure(t('extensionViewProcessExited'))
     const onLoadFailure = (event: Event): void => {
       const detail = event as Event & { errorDescription?: string }
-      setFailure(boundedPlainText(detail.errorDescription || 'The extension View failed to load.', 1_024))
+      setFailure(boundedPlainText(detail.errorDescription || t('extensionViewLoadFailed'), 1_024))
     }
     webview.addEventListener('render-process-gone', onCrash)
     webview.addEventListener('did-fail-load', onLoadFailure)
@@ -130,7 +132,7 @@ export function ExtensionWebview({
       webview.removeEventListener('render-process-gone', onCrash)
       webview.removeEventListener('did-fail-load', onLoadFailure)
     }
-  }, [session])
+  }, [session, t])
 
   useEffect(() => {
     const webview = webviewRef.current
@@ -151,7 +153,7 @@ export function ExtensionWebview({
   return (
     <section
       className="ds-extension-view flex h-full min-h-0 w-full flex-col bg-ds-sidebar"
-      aria-label={`${title} extension View`}
+      aria-label={t('extensionViewAriaLabel', { title })}
       data-contribution-id={contribution.id}
     >
       <header className="ds-no-drag flex h-11 shrink-0 items-center gap-2 border-b border-ds-border-muted px-3">
@@ -166,7 +168,7 @@ export function ExtensionWebview({
             type="button"
             onClick={onClose}
             className="rounded-md p-1 text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
-            aria-label={`Close ${title}`}
+            aria-label={t('extensionViewClose', { title })}
           >
             <X className="h-4 w-4" />
           </button>
@@ -176,7 +178,9 @@ export function ExtensionWebview({
       {failure ? (
         <div role="alert" className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
           <AlertTriangle className="h-8 w-8 text-amber-500" aria-hidden />
-          <div className="mt-3 text-[13px] font-semibold text-ds-ink">Extension View unavailable</div>
+          <div className="mt-3 text-[13px] font-semibold text-ds-ink">
+            {t('extensionViewUnavailable')}
+          </div>
           <div className="mt-1 max-w-sm text-[12px] leading-5 text-ds-muted">{failure}</div>
           <button
             type="button"
@@ -184,7 +188,7 @@ export function ExtensionWebview({
             className="mt-4 inline-flex items-center gap-2 rounded-lg border border-ds-border px-3 py-1.5 text-[12px] font-semibold text-ds-ink hover:bg-ds-hover"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Retry
+            {t('extensionViewRetry')}
           </button>
         </div>
       ) : session ? (
@@ -200,7 +204,7 @@ export function ExtensionWebview({
         />
       ) : (
         <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-[12px] text-ds-muted">
-          Opening isolated extension View…
+          {t('extensionViewOpening')}
         </div>
       )}
     </section>

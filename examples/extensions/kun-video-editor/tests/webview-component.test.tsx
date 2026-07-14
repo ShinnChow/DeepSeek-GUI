@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { VideoEditorWorkbench } from '../src/webview/app.js'
+import { syncDocumentPresentation, VideoEditorWorkbench } from '../src/webview/app.js'
 import type { EditorController } from '../src/webview/controller.js'
 import { INITIAL_EDITOR_STATE, editorReducer, type EditorState } from '../src/webview/model.js'
 import { makeArtifact, makeJob, makeSubtitleArtifact, makeViewProject } from './webview-fixtures.js'
@@ -26,7 +27,7 @@ describe('video editor docked workbench', () => {
     expect(html).toContain('href="#video-editor-main"')
     expect(html).toContain('aria-live="polite"')
     expect(html).toContain('aria-label="Ordered timeline tracks"')
-    for (const manualControl of ['Split at playhead', 'Apply trim', 'Move track', 'Reorder', 'Add caption', 'Canvas and fit']) {
+    for (const manualControl of ['Split at playhead', 'Apply trim', 'Move to track', 'Reorder', 'Add caption', 'Canvas and fit']) {
       expect(html).toContain(manualControl)
     }
     expect(html).toContain('does not perform arbitrary visual-scene understanding')
@@ -70,9 +71,54 @@ describe('video editor docked workbench', () => {
     }
     const waitingHtml = renderToStaticMarkup(<VideoEditorWorkbench controller={stubController(waitingState)} />)
     expect(waitingHtml).toContain('Existing private run')
-    expect(waitingHtml).toContain('waiting-approval')
+    expect(waitingHtml).toContain('Waiting for approval')
     expect(waitingHtml).toContain('Ready for main-Agent edits')
     expect(waitingHtml).toContain('Cancel job')
+  })
+
+  it('renders the workbench in Simplified Chinese and follows the Kun theme', () => {
+    const project = makeViewProject()
+    const initialized = editorReducer(
+      editorReducer(INITIAL_EDITOR_STATE, { type: 'initialized' }),
+      { type: 'project', value: project }
+    )
+    const state: EditorState = {
+      ...initialized,
+      theme: { kind: 'light', tokens: {}, zoomFactor: 1, reducedMotion: false },
+      locale: { language: 'zh-CN', direction: 'ltr', messages: {} }
+    }
+    const html = renderToStaticMarkup(<VideoEditorWorkbench controller={stubController(state)} />)
+
+    expect(html).toContain('data-theme="light"')
+    expect(html).toContain('lang="zh-CN"')
+    for (const label of ['Kun 视频剪辑', '媒体库', '播放器', '逐字稿', '时间线', '检查器', '字幕', '版本', '预览与校样', 'Agent 协作', '导出任务']) {
+      expect(html).toContain(label)
+    }
+    for (const control of ['在播放头处拆分', '应用裁剪', '移动到轨道', '重新排序', '添加字幕', '画布与适配']) {
+      expect(html).toContain(control)
+    }
+    expect(html).not.toContain('Transcript-first workbench')
+    expect(html).not.toContain('Select a project')
+  })
+
+  it('propagates presentation state to the document root and keeps light colors theme-driven', () => {
+    const documentRoot = { dataset: {}, dir: '', lang: '' } as unknown as Pick<HTMLElement, 'dataset' | 'dir' | 'lang'>
+    syncDocumentPresentation(
+      documentRoot,
+      { kind: 'light', tokens: {}, zoomFactor: 1, reducedMotion: false },
+      { language: 'zh-CN', direction: 'ltr', messages: {} }
+    )
+
+    expect(documentRoot.dataset.theme).toBe('light')
+    expect(documentRoot.lang).toBe('zh-CN')
+    expect(documentRoot.dir).toBe('ltr')
+
+    const css = readFileSync(new URL('../src/webview/styles.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/:root\[data-theme="light"\],\s*\.editor-app\[data-theme="light"\]/u)
+    expect(css).toMatch(/\.editor-app\s*\{[^}]*color: var\(--text\);[^}]*var\(--app-glow\)/su)
+    expect(css).toContain('body { min-height: 100vh; overflow-x: hidden; background: var(--bg); color: var(--text); }')
+    expect(css).not.toContain('#222b3c 0')
+    expect(css).not.toContain('background: #0b0f16')
   })
 })
 

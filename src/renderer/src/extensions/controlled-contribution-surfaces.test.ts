@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { act, create as createRenderer } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
+import i18n from '../i18n'
 import {
   ContributionRegistry,
   ExtensionWorkbenchSnapshotSchema
@@ -282,5 +283,18 @@ describe('controlled workbench contribution rendering', () => {
     expect(validateExtensionViewSession(validSession, contribution)).toBeNull()
     expect(validateExtensionViewSession({ ...validSession, partition: 'persist:shared' }, contribution)).toContain('non-persistent')
     expect(validateExtensionViewSession({ ...validSession, src: 'https://evil.example/' }, contribution)).toContain('origin mismatch')
+  })
+
+  it('renders Host-owned extension View status in the active Kun language', async () => {
+    const contribution = registryWithContributions().list('views.rightSidebar')
+      .find((item) => item.id === 'extension:acme.ui/dashboard')!
+    await i18n.changeLanguage('zh')
+    try {
+      const html = renderToStaticMarkup(createElement(ExtensionViewOutlet, { contribution }))
+      expect(html).toContain('正在打开隔离的扩展视图')
+      expect(html).toContain('Dashboard 扩展视图')
+    } finally {
+      await i18n.changeLanguage('en')
+    }
   })
 })

@@ -78,6 +78,7 @@ export function WorkbenchStageRouter({
       {route === 'extensions' ? (
         <Suspense fallback={<div className="h-full bg-ds-main" />}>
           <ExtensionManagementCenter
+            key={extensions.workspaceRoot || '__global__'}
             leftSidebarCollapsed={leftSidebarCollapsed}
             onToggleLeftSidebar={onToggleLeftSidebar}
             workspaceRoot={extensions.workspaceRoot}

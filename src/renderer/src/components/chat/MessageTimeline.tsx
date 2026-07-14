@@ -50,6 +50,7 @@ import {
   DeclarativeResultPreviews,
   type ExtensionResultPreviewSource
 } from '../../extensions/ControlledContributionSurfaces'
+import { resolveActiveExtensionWorkspaceRoot } from '../../extensions/active-extension-workspace'
 
 export { summarizeToolBlock } from './message-timeline-process'
 
@@ -326,6 +327,11 @@ export function MessageTimeline({
     activeThreadGoal,
     activeThread
   } = useTimelineStores(activeThreadId)
+  const extensionWorkspaceRoot = resolveActiveExtensionWorkspaceRoot(
+    activeThreadId,
+    activeThread ? [activeThread] : [],
+    workspaceRoot
+  )
 
   const heroRoute: 'chat' | 'claw' = route === 'claw' ? 'claw' : 'chat'
   const hasContent = blocks.length > 0 || live || liveReasoning
@@ -672,7 +678,7 @@ export function MessageTimeline({
                   sources={resultPreviewSourcesForTurn(turn)}
                   threadId={activeThreadId}
                   turnId={turn.user?.turnId}
-                  workspaceRoot={workspaceRoot}
+                  workspaceRoot={extensionWorkspaceRoot}
                 />
               ) : null}
             </div>

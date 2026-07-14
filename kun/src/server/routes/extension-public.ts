@@ -9,6 +9,7 @@ import {
   AgentSteerRequestSchema,
   ExtensionContributionsSchema,
   ExtensionIdSchema,
+  EXTENSION_VIEW_SAFE_METHODS,
   HostMessageSchema,
   JsonValueSchema,
   LocaleSchema,
@@ -230,35 +231,7 @@ const ProtectedArtifactResolutionSchema = z.strictObject({
 })
 
 /** Guest-safe broker methods. Protected account/secret operations stay in Main-owned UI. */
-const VIEW_BROKER_METHODS = new Set([
-  'ui.getTheme',
-  'ui.getLocale',
-  'ui.getViewState',
-  'ui.setViewState',
-  'ui.postMessage',
-  'ui.showNotification',
-  'commands.execute',
-  'network.fetch',
-  'agent.createRun',
-  'agent.getRun',
-  'agent.subscribe',
-  'agent.unsubscribe',
-  'agent.steer',
-  'agent.cancel',
-  'threads.listOwn',
-  'threads.getOwn',
-  'authentication.listAccounts',
-  'modelProviders.getStatus',
-  'storage.get',
-  'storage.set',
-  'storage.delete',
-  'storage.keys',
-  'workspace.readFile',
-  'workspace.writeFile',
-  'workspace.stat',
-  'workspace.list',
-  'media.performArtifactAction'
-])
+const VIEW_BROKER_METHODS: ReadonlySet<string> = new Set(EXTENSION_VIEW_SAFE_METHODS)
 
 const ProviderProbeSchema = z.strictObject({
   accountId: AccountIdSchema,
@@ -1503,9 +1476,11 @@ async function createViewSession(
   try {
     if (target.manifest.main) {
       const event = activationEvent(target.manifest, target.target.localContributionId, 'onView')
-      await platform.manager.activate(target.target.extensionId, event, {
-        ...(workspaceRoot ? { workspaceRoot } : {})
-      })
+      await platform.manager.activate(
+        target.target.extensionId,
+        event,
+        viewActivationOptions(platform, target.target)
+      )
     }
     return jsonResponse(session, 201)
   } catch (error) {
@@ -1572,7 +1547,7 @@ async function postViewMessage(
     const host = await platform.manager.activate(
       target.extensionId,
       target.activationEvent,
-      { ...(target.workspaceRoot ? { workspaceRoot: target.workspaceRoot } : {}) }
+      viewActivationOptions(platform, target)
     )
     if (host) await platform.manager.notify(target.extensionId, 'ui.message', body.data as JsonValue)
     return jsonResponse({ schemaVersion: 1, accepted: true, delivered: Boolean(host) }, 202)
@@ -1665,7 +1640,7 @@ async function deliverViewMessageToHost(
   const host = await platform.manager.activate(
     target.extensionId,
     target.activationEvent,
-    { ...(target.workspaceRoot ? { workspaceRoot: target.workspaceRoot } : {}) }
+    viewActivationOptions(platform, target)
   )
   if (host) await platform.manager.notify(target.extensionId, 'ui.message', message as JsonValue)
   return Boolean(host)
@@ -2075,6 +2050,24 @@ async function resolveViewTarget(
       ...(workspaceRoot ? { workspaceRoot } : {}),
       grantedPermissions: [...selected.grantedPermissions],
       workspaceTrusted: selected.workspaceTrusted
+    }
+  }
+}
+
+function viewActivationOptions(
+  platform: ExtensionPlatformRuntime,
+  target: ExtensionViewSessionTarget
+): NonNullable<Parameters<ExtensionPlatformRuntime['manager']['activate']>[2]> {
+  const workspaceRoot = target.workspaceRoot
+  if (!workspaceRoot) return {}
+  return {
+    workspaceRoot,
+    workspaceContext: {
+      id: platform.paths.workspaceKey(workspaceRoot),
+      name: basename(workspaceRoot) || workspaceRoot,
+      root: workspaceRoot,
+      trusted: target.workspaceTrusted,
+      active: target.workspaceTrusted
     }
   }
 }

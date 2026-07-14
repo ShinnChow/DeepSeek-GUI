@@ -62,9 +62,12 @@ import { GeneralSettingsSection } from './settings-section-general'
 import { ExtensionDeclarativeSettingsPane } from '../extensions/ExtensionDeclarativeSettingsPane'
 import { useExtensionSettingsService } from '../extensions/ExtensionSettingsServiceContext'
 import {
+  isExtensionContributionSnapshotReady,
+  useExtensionContributionLoadState,
   useWorkbenchContributions,
   workbenchContextForRoute
 } from '../extensions/use-contributions'
+import { useActiveExtensionWorkspaceRoot } from '../extensions/active-extension-workspace'
 
 const ProvidersSettingsSection = lazy(() =>
   import('./settings-section-providers').then((module) => ({ default: module.ProvidersSettingsSection }))
@@ -162,6 +165,7 @@ export function SettingsView(): ReactElement {
   const threads = useChatStore((s) => s.threads)
   const runtimeConnection = useChatStore((s) => s.runtimeConnection)
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
+  const extensionWorkspaceRoot = useActiveExtensionWorkspaceRoot()
   const refreshThreads = useChatStore((s) => s.refreshThreads)
   const selectThread = useChatStore((s) => s.selectThread)
   const archiveThread = useChatStore((s) => s.archiveThread)
@@ -204,12 +208,18 @@ export function SettingsView(): ReactElement {
   const [writeDebugError, setWriteDebugError] = useState<string | null>(null)
   const extensionSettingsService = useExtensionSettingsService()
   const extensionSettingsContext = useMemo(
-    () => workbenchContextForRoute('settings', workspaceRoot),
-    [workspaceRoot]
+    () => workbenchContextForRoute('settings', extensionWorkspaceRoot),
+    [extensionWorkspaceRoot]
+  )
+  const extensionContributionLoadState = useExtensionContributionLoadState()
+  const extensionContributionSnapshotReady = isExtensionContributionSnapshotReady(
+    extensionContributionLoadState,
+    extensionWorkspaceRoot
   )
   const extensionSettingsContributions = useWorkbenchContributions(
     'settings',
-    extensionSettingsContext
+    extensionSettingsContext,
+    extensionContributionSnapshotReady
   )
   const extensionSettingsAvailable = extensionSettingsService !== null &&
     extensionSettingsContributions.length > 0
@@ -267,8 +277,12 @@ export function SettingsView(): ReactElement {
   })
 
   useEffect(() => {
-    if (category === 'extensions' && !extensionSettingsAvailable) setCategory('general')
-  }, [category, extensionSettingsAvailable])
+    if (
+      category === 'extensions' &&
+      extensionContributionSnapshotReady &&
+      !extensionSettingsAvailable
+    ) setCategory('general')
+  }, [category, extensionContributionSnapshotReady, extensionSettingsAvailable])
 
   useEffect(() => {
     let cancelled = false
@@ -1246,7 +1260,7 @@ export function SettingsView(): ReactElement {
           {category === 'extensions' && extensionSettingsService ? (
             <ExtensionDeclarativeSettingsPane
               contributions={extensionSettingsContributions}
-              workspaceRoot={workspaceRoot}
+              workspaceRoot={extensionWorkspaceRoot}
               service={extensionSettingsService}
             />
           ) : null}
