@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   captureResizePointer,
   fitWorkbenchWidths,
+  initialCodeRightTabsForLaunch,
   normalizeStoredCodeRightWidthsRegistry,
   RAIL_WIDTH,
   WORKBENCH_RESIZE_CLASS,
@@ -66,6 +67,33 @@ describe('code right workspace widths', () => {
     expect(normalizeStoredCodeRightWidthsRegistry({ version: 2 })).toEqual({
       version: 1,
       workspaces: {}
+    })
+  })
+})
+
+describe('code right workspace startup', () => {
+  it('keeps restored tabs but starts with the sidebar collapsed', () => {
+    const restored = initialCodeRightTabsForLaunch({
+      version: 1,
+      tabs: [BUILTIN_RIGHT_PANEL_IDS.browser],
+      activeId: BUILTIN_RIGHT_PANEL_IDS.browser,
+      expanded: true
+    }, null)
+
+    expect(restored).toEqual({
+      version: 1,
+      tabs: [BUILTIN_RIGHT_PANEL_IDS.browser],
+      activeId: BUILTIN_RIGHT_PANEL_IDS.browser,
+      expanded: false
+    })
+  })
+
+  it('does not expand a migrated legacy panel on launch', () => {
+    expect(initialCodeRightTabsForLaunch(undefined, BUILTIN_RIGHT_PANEL_IDS.files)).toEqual({
+      version: 1,
+      tabs: [BUILTIN_RIGHT_PANEL_IDS.files],
+      activeId: BUILTIN_RIGHT_PANEL_IDS.files,
+      expanded: false
     })
   })
 })

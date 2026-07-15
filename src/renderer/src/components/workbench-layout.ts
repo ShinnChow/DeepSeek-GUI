@@ -175,6 +175,22 @@ function persistCodeRightWidthsRegistry(registry: StoredCodeRightWidthsRegistry)
   writeBrowserStorageItem(CODE_RIGHT_WIDTHS_KEY, JSON.stringify(registry))
 }
 
+/**
+ * Keep a workspace's previous right-panel tabs available, without letting a
+ * restored panel take over the conversation when the application launches.
+ */
+export function initialCodeRightTabsForLaunch(
+  stored: CodeRightTabsState | undefined,
+  legacyMode: RightPanelMode
+): CodeRightTabsState {
+  if (stored) return collapseCodeRightTabs(stored)
+  const legacy = legacyMode === BUILTIN_RIGHT_PANEL_IDS.sddAi ? null : legacyMode
+  const migrated = legacy
+    ? openCodeRightTab(emptyCodeRightTabsState(), legacy)
+    : emptyCodeRightTabsState()
+  return collapseCodeRightTabs(migrated)
+}
+
 export function workbenchWidthConstraintsForRightPanel(
   route: AppRoute,
   _rightPanelMode: RightPanelMode
@@ -290,11 +306,7 @@ export function useWorkbenchLayout({
   const legacyModeRef = useRef(readStoredRightPanelMode())
   const [codeRightTabs, setCodeRightTabs] = useState<CodeRightTabsState>(() => {
     const stored = tabsRegistryRef.current.workspaces[initialScopeRef.current]
-    if (stored) return stored
-    const legacy = legacyModeRef.current === BUILTIN_RIGHT_PANEL_IDS.sddAi
-      ? null
-      : legacyModeRef.current
-    return legacy ? openCodeRightTab(emptyCodeRightTabsState(), legacy) : emptyCodeRightTabsState()
+    return initialCodeRightTabsForLaunch(stored, legacyModeRef.current)
   })
   const codeRightTabsRef = useRef(codeRightTabs)
   codeRightTabsRef.current = codeRightTabs
