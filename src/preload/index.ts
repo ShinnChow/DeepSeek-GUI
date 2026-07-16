@@ -148,6 +148,10 @@ const api = {
     ipcRenderer.invoke('ui-plugin:remove', { id }),
   loadUiPlugin: (id) =>
     ipcRenderer.invoke('ui-plugin:load', { id }),
+  activateUiPluginTheme: (id) =>
+    ipcRenderer.invoke('ui-plugin:theme:activate', { id }),
+  deactivateUiPluginTheme: () =>
+    ipcRenderer.invoke('ui-plugin:theme:deactivate'),
   getKunConfigFile: () =>
     ipcRenderer.invoke('kun:config:read'),
   setKunConfigFile: (content) =>

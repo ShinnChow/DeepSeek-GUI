@@ -227,6 +227,16 @@ export type UiPluginLoadIpcResult =
       backgrounds: UiPluginRuntimeBackgrounds
     }
   | { ok: false; error: string }
+export type UiPluginThemeActivateIpcResult =
+  | {
+      ok: true
+      manifest: UiPluginManifestV1
+      figures: UiPluginRuntimeFigures
+    }
+  | { ok: false; error: string }
+export type UiPluginThemeDeactivateIpcResult =
+  | { ok: true }
+  | { ok: false; error: string }
 export type DeepseekConfigFileResult = { path: string; content: string; exists: boolean }
 export type DeepseekConfigSaveResult = { ok: true; path: string }
 export type TurnCompleteNotificationPayload = {
@@ -496,6 +506,8 @@ export type KunGuiApi = ExtensionIpcApi & {
   installUiPlugin: () => Promise<UiPluginInstallIpcResult>
   removeUiPlugin: (id: string) => Promise<{ ok: boolean }>
   loadUiPlugin: (id: string) => Promise<UiPluginLoadIpcResult>
+  activateUiPluginTheme: (id: string) => Promise<UiPluginThemeActivateIpcResult>
+  deactivateUiPluginTheme: () => Promise<UiPluginThemeDeactivateIpcResult>
   getKunConfigFile: () => Promise<DeepseekConfigFileResult>
   setKunConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>
   openKunConfigDir: () => Promise<PathOpenResult>

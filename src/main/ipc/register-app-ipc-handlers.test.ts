@@ -266,6 +266,30 @@ describe('registerAppIpcHandlers', () => {
     })).toBe(true)
   })
 
+  it('rejects every UI plugin bridge outside the trusted top-level workbench frame', async () => {
+    const mainFrame = { processId: 10, routingId: 20 }
+    const contents = { id: 7, mainFrame }
+    const mainWindow = { isDestroyed: () => false, webContents: contents }
+    registerAppIpcHandlers(registerOptions({ getMainWindow: () => mainWindow as never }))
+    const untrustedEvent = {
+      sender: contents,
+      senderFrame: { processId: 10, routingId: 21 }
+    }
+
+    for (const [channel, payload] of [
+      ['ui-plugin:list', undefined],
+      ['ui-plugin:install', undefined],
+      ['ui-plugin:remove', { id: 'starlight' }],
+      ['ui-plugin:load', { id: 'starlight' }],
+      ['ui-plugin:theme:activate', { id: 'starlight' }],
+      ['ui-plugin:theme:deactivate', undefined]
+    ] as const) {
+      await expect(handlers.get(channel)?.(untrustedEvent, payload)).rejects.toThrow(
+        /trusted workbench frame/
+      )
+    }
+  })
+
   it('accepts checkpoint cleanup settings patches', async () => {
     const applySettingsPatch = vi.fn(async () => settings())
 

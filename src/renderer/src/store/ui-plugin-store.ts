@@ -1,13 +1,10 @@
 import { create } from 'zustand'
 import {
-  buildUiPluginBackgroundCss,
-  buildUiPluginTokenCss,
   resolveUiPluginFigure,
   type UiPluginFigureSlot,
   type UiPluginLabelKey,
   type UiPluginListItem,
   type UiPluginManifestV1,
-  type UiPluginRuntimeBackgrounds,
   type UiPluginRuntimeFigures
 } from '@shared/ui-plugin'
 import {
@@ -20,13 +17,13 @@ import {
 
 /**
  * 形象工坊运行时:单一 uiMode('default' | 'ikun' | 插件 id),
- * 负责 DOM 属性(data-ikun-mode / data-ui-plugin)、token 样式注入与插件图集加载。
+ * 负责 DOM 属性(data-ikun-mode / data-ui-plugin)与插件图集加载。
+ * 主题 CSS 由主进程根据已校验 manifest 生成并通过短生命周期 CDP 会话注入。
  */
 
 export type UiPluginRuntime = {
   manifest: UiPluginManifestV1
   figures: UiPluginRuntimeFigures
-  backgrounds: UiPluginRuntimeBackgrounds
 }
 
 type UiPluginState = {
@@ -43,7 +40,9 @@ type UiPluginState = {
   removeUiPluginById: (id: string) => Promise<void>
 }
 
-const TOKEN_STYLE_ELEMENT_ID = 'ds-ui-plugin-tokens'
+const LEGACY_RENDERER_THEME_STYLE_ID = 'ds-ui-plugin-tokens'
+let activationRequestId = 0
+let activationQueue: Promise<void> = Promise.resolve()
 
 function uiPluginApi(): Window['kunGui'] | null {
   if (typeof window === 'undefined') return null
@@ -62,27 +61,19 @@ function applyUiModeDom(mode: string, runtime: UiPluginRuntime | null): void {
   } else {
     root.removeAttribute('data-ui-plugin')
   }
+  // Remove a style node left behind by an older hot-reloaded renderer. New
+  // versions never construct or update plugin theme CSS in the renderer.
+  document.getElementById(LEGACY_RENDERER_THEME_STYLE_ID)?.remove()
+}
 
-  const css =
-    runtime && mode === runtime.manifest.id
-      ? [
-          buildUiPluginTokenCss(runtime.manifest),
-          buildUiPluginBackgroundCss(runtime.manifest, runtime.backgrounds)
-        ]
-          .filter(Boolean)
-          .join('\n\n')
-      : ''
-  let styleElement = document.getElementById(TOKEN_STYLE_ELEMENT_ID)
-  if (!css) {
-    styleElement?.remove()
-    return
+async function deactivateHostTheme(api: Window['kunGui'] | null): Promise<string | null> {
+  if (typeof api?.deactivateUiPluginTheme !== 'function') return null
+  try {
+    const result = await api.deactivateUiPluginTheme()
+    return result.ok ? null : result.error
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
-  if (!styleElement) {
-    styleElement = document.createElement('style')
-    styleElement.id = TOKEN_STYLE_ELEMENT_ID
-    document.head.appendChild(styleElement)
-  }
-  styleElement.textContent = css
 }
 
 export const useUiPluginStore = create<UiPluginState>((set, get) => ({
@@ -98,8 +89,9 @@ export const useUiPluginStore = create<UiPluginState>((set, get) => ({
     set({ initialized: true })
     const mode = readUiModePreference()
     if (mode === UI_MODE_DEFAULT || mode === UI_MODE_RETROMA) {
-      set({ uiMode: mode })
-      applyUiModeDom(mode, null)
+      // Main may still remember/reapply a CDP theme across renderer reloads.
+      // Route even inactive modes through the host deactivation handshake.
+      await get().activateUiMode(mode)
       void get().refreshUiPlugins()
       return
     }
@@ -120,67 +112,92 @@ export const useUiPluginStore = create<UiPluginState>((set, get) => ({
     }
   },
 
-  activateUiMode: async (mode: string) => {
+  activateUiMode: (mode: string) => {
     const normalized = mode.trim().toLowerCase()
-    if (normalized === UI_MODE_DEFAULT) {
-      writeUiModePreference(normalized)
-      set({ uiMode: normalized, activeRuntime: null, lastError: null })
-      applyUiModeDom(normalized, null)
-      return
-    }
+    const requestId = ++activationRequestId
+    const operation = activationQueue.then(async () => {
+      if (requestId !== activationRequestId) return
+      const api = uiPluginApi()
 
-    // 'retroma' 是纯配色内置模式,无吉祥物图集,不走插件加载链路
-    if (normalized === UI_MODE_RETROMA) {
-      writeUiModePreference(normalized)
-      set({ uiMode: normalized, activeRuntime: null, lastError: null })
-      applyUiModeDom(normalized, null)
-      return
-    }
-
-    // 'ikun' 不再特殊:它是预装插件,与第三方插件走同一条加载链路;
-    // applyUiModeDom 会在 id 为 ikun 时同时点亮 data-ikun-mode 手工机制
-    const api = uiPluginApi()
-    if (typeof api?.loadUiPlugin !== 'function') {
-      // 桌面接口不可用(如纯渲染测试):ikun 仍可退化为仅属性模式
-      if (normalized === UI_MODE_IKUN) {
+      if (normalized === UI_MODE_DEFAULT || normalized === UI_MODE_RETROMA) {
         writeUiModePreference(normalized)
-        set({ uiMode: normalized, activeRuntime: null, lastError: null })
+        set({ busy: false, uiMode: normalized, activeRuntime: null, lastError: null })
         applyUiModeDom(normalized, null)
+        const deactivateError = await deactivateHostTheme(api)
+        if (requestId === activationRequestId && deactivateError) {
+          set({ lastError: deactivateError })
+        }
+        return
       }
-      return
-    }
-    set({ busy: true })
-    try {
-      const result = await api.loadUiPlugin(normalized)
-      if (!result.ok) {
+
+      // 'ikun' 不再特殊:它是预装插件,与第三方插件走同一条加载链路;
+      // applyUiModeDom 会在 id 为 ikun 时同时点亮 data-ikun-mode 手工机制。
+      if (typeof api?.activateUiPluginTheme !== 'function') {
+        // 桌面接口不可用(如纯渲染测试):ikun 仍可退化为仅属性模式。
+        if (normalized === UI_MODE_IKUN) {
+          writeUiModePreference(normalized)
+          set({ busy: false, uiMode: normalized, activeRuntime: null, lastError: null })
+          applyUiModeDom(normalized, null)
+        } else {
+          const message = '桌面 CDP 主题注入接口不可用'
+          writeUiModePreference(UI_MODE_DEFAULT)
+          set({
+            busy: false,
+            uiMode: UI_MODE_DEFAULT,
+            activeRuntime: null,
+            lastError: message
+          })
+          applyUiModeDom(UI_MODE_DEFAULT, null)
+        }
+        return
+      }
+
+      set({ busy: true })
+      try {
+        // The ID is the only renderer-provided activation input. Main reloads
+        // and validates the installed manifest/assets before generating CSS,
+        // then returns figures from that same canonical load (no TOCTOU split).
+        const themeResult = await api.activateUiPluginTheme(normalized)
+        if (requestId !== activationRequestId) return
+        if (!themeResult.ok) {
+          writeUiModePreference(UI_MODE_DEFAULT)
+          set({
+            busy: false,
+            uiMode: UI_MODE_DEFAULT,
+            activeRuntime: null,
+            lastError: themeResult.error
+          })
+          applyUiModeDom(UI_MODE_DEFAULT, null)
+          await deactivateHostTheme(api)
+          return
+        }
+
+        const runtime: UiPluginRuntime = {
+          manifest: themeResult.manifest,
+          figures: themeResult.figures
+        }
+        writeUiModePreference(normalized)
+        set({ busy: false, uiMode: normalized, activeRuntime: runtime, lastError: null })
+        applyUiModeDom(normalized, runtime)
+      } catch (error) {
+        if (requestId !== activationRequestId) return
+        const message = error instanceof Error ? error.message : String(error)
+        writeUiModePreference(UI_MODE_DEFAULT)
         set({
           busy: false,
           uiMode: UI_MODE_DEFAULT,
           activeRuntime: null,
-          lastError: result.error
+          lastError: message
         })
-        writeUiModePreference(UI_MODE_DEFAULT)
         applyUiModeDom(UI_MODE_DEFAULT, null)
-        return
+        await deactivateHostTheme(api)
       }
-      const runtime: UiPluginRuntime = {
-        manifest: result.manifest,
-        figures: result.figures,
-        backgrounds: result.backgrounds ?? {}
-      }
-      writeUiModePreference(normalized)
-      set({ busy: false, uiMode: normalized, activeRuntime: runtime, lastError: null })
-      applyUiModeDom(normalized, runtime)
-    } catch (error) {
-      set({
-        busy: false,
-        uiMode: UI_MODE_DEFAULT,
-        activeRuntime: null,
-        lastError: error instanceof Error ? error.message : String(error)
-      })
-      writeUiModePreference(UI_MODE_DEFAULT)
-      applyUiModeDom(UI_MODE_DEFAULT, null)
-    }
+    })
+    activationQueue = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    return operation
   },
 
   installUiPluginFromDialog: async () => {

@@ -3,8 +3,9 @@
  *
  * 一个 UI 插件 = 一个文件夹:manifest.json + 若干图片。
  * 纯声明式 —— 不允许任何 JS / HTML / 自定义 CSS 执行;
- * 图片由主进程读入并以 data URL 注入渲染层,
- * 主题 token 仅允许 --ds-* 白名单,样式文本由应用侧生成。
+ * 图片由主进程读取并校验,主题 token 仅允许 --ds-* 白名单。
+ * 主题样式只能由宿主生成,再由主进程通过短生命周期 CDP 会话注入;
+ * 插件本身不能提供或执行 CSS / JS。
  */
 
 export const UI_PLUGIN_MANIFEST_FILENAME = 'manifest.json'

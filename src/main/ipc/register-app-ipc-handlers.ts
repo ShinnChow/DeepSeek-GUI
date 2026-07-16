@@ -179,6 +179,8 @@ import {
   loadUiPluginFigures,
   removeUiPlugin
 } from '../services/ui-plugin-service'
+import { UiPluginCdpThemeController } from '../services/ui-plugin-cdp-theme-controller'
+import { buildUiPluginBackgroundCss, buildUiPluginTokenCss } from '../../shared/ui-plugin'
 import { ensureBundledUiPlugins } from '../ui-plugin-bundled'
 import { ensureBundledSkills } from '../skill-bundled'
 import {
@@ -326,7 +328,7 @@ function assertTrustedWorkbenchSender(
     senderFrame.processId !== mainFrame.processId ||
     senderFrame.routingId !== mainFrame.routingId
   ) {
-    throw new Error('Approval IPC sender is not the trusted workbench frame.')
+    throw new Error('IPC sender is not the trusted workbench frame.')
   }
 }
 
@@ -515,6 +517,17 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
   const workspaceFileWatchSenders = new Map<number, WorkspaceFileWatchSenderRecord>()
   const executionSettingsConsents = new KunExecutionSettingsConsentService()
+  const uiPluginThemeController = new UiPluginCdpThemeController({
+    getWebContents: () => {
+      const window = getMainWindow()
+      return window && !window.isDestroyed() ? window.webContents : null
+    },
+    onBackgroundError: (scope, error) => {
+      logError('ui-plugin-cdp', `UI plugin CDP theme ${scope} failed`, {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  })
 
   const applyProtectedSettingsPatch = async (
     event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
@@ -1221,13 +1234,15 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('ui-plugin:list', async () => {
+  ipcMain.handle('ui-plugin:list', async (event) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
     const kunHomeDir = join(homedir(), '.kun')
     await ensureBundledUiPlugins(kunHomeDir)
     return { plugins: await listUiPlugins(kunHomeDir) }
   })
 
-  ipcMain.handle('ui-plugin:install', async () => {
+  ipcMain.handle('ui-plugin:install', async (event) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
     const mainWindow = getMainWindow()
     const options: Electron.OpenDialogOptions = {
       title: 'Select a UI plugin folder',
@@ -1247,16 +1262,78 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return { canceled: false as const, ok: true as const, plugin: result.plugin }
   })
 
-  ipcMain.handle('ui-plugin:remove', async (_, payload: unknown) => {
+  ipcMain.handle('ui-plugin:remove', async (event, payload: unknown) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
     const request = parseIpcPayload('ui-plugin:remove', uiPluginIdPayloadSchema, payload)
+    if (uiPluginThemeController.activePluginId === request.id) {
+      try {
+        await uiPluginThemeController.deactivate()
+      } catch (error) {
+        logError('ui-plugin-cdp', 'Could not deactivate the UI plugin before removal', {
+          pluginId: request.id,
+          message: error instanceof Error ? error.message : String(error)
+        })
+        return { ok: false }
+      }
+    }
     return { ok: await removeUiPlugin(join(homedir(), '.kun'), request.id) }
   })
 
-  ipcMain.handle('ui-plugin:load', async (_, payload: unknown) => {
+  ipcMain.handle('ui-plugin:load', async (event, payload: unknown) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
     const request = parseIpcPayload('ui-plugin:load', uiPluginIdPayloadSchema, payload)
     const kunHomeDir = join(homedir(), '.kun')
     await ensureBundledUiPlugins(kunHomeDir)
     return loadUiPluginFigures(kunHomeDir, request.id)
+  })
+
+  ipcMain.handle('ui-plugin:theme:activate', async (event, payload: unknown) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
+    const request = parseIpcPayload(
+      'ui-plugin:theme:activate',
+      uiPluginIdPayloadSchema,
+      payload
+    )
+    const kunHomeDir = join(homedir(), '.kun')
+    await ensureBundledUiPlugins(kunHomeDir)
+    const loaded = await loadUiPluginFigures(kunHomeDir, request.id)
+    if (!loaded.ok) return { ok: false as const, error: loaded.error }
+
+    // Only normalized manifest fields and main-validated image data reach the
+    // CSS builders. The renderer cannot supply CSS or executable payloads.
+    const css = [
+      buildUiPluginTokenCss(loaded.manifest),
+      buildUiPluginBackgroundCss(loaded.manifest, loaded.backgrounds)
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    try {
+      await uiPluginThemeController.activate(loaded.manifest.id, css)
+      return {
+        ok: true as const,
+        manifest: loaded.manifest,
+        figures: loaded.figures
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logError('ui-plugin-cdp', 'Could not activate a UI plugin theme', {
+        pluginId: loaded.manifest.id,
+        message
+      })
+      return { ok: false as const, error: message }
+    }
+  })
+
+  ipcMain.handle('ui-plugin:theme:deactivate', async (event) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
+    try {
+      await uiPluginThemeController.deactivate()
+      return { ok: true as const }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logError('ui-plugin-cdp', 'Could not deactivate the UI plugin theme', { message })
+      return { ok: false as const, error: message }
+    }
   })
 
   ipcMain.handle('kun:config:read', async () => {
