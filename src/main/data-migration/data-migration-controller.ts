@@ -390,26 +390,7 @@ export class DataMigrationController {
   }
 
   private async listRuntimeThreads(): Promise<RuntimeThreadForMigration[]> {
-    const response = await this.options.runtimeFetch('/v1/threads?limit=10000&include_archived=true')
-    if (!response.ok) throw new Error(`Kun thread inventory failed (${response.status})`)
-    const value = await response.json() as { threads?: unknown[] }
-    return (Array.isArray(value.threads) ? value.threads : []).flatMap((raw) => {
-      if (!raw || typeof raw !== 'object') return []
-      const thread = raw as Record<string, unknown>
-      if (typeof thread.id !== 'string') return []
-      return [{
-        id: thread.id,
-        title: typeof thread.title === 'string' ? thread.title : '',
-        ...(typeof thread.workspace === 'string' ? { workspace: thread.workspace } : {}),
-        status: thread.status === 'archived' ? 'archived' as const : thread.status === 'running' ? 'running' as const : 'idle' as const,
-        ...(thread.relation === 'fork' || thread.relation === 'side' ? { relation: thread.relation } : {}),
-        ...(typeof thread.parentThreadId === 'string' ? { parentThreadId: thread.parentThreadId } : {}),
-        ...(typeof thread.model === 'string' ? { model: thread.model } : {}),
-        ...(typeof thread.providerId === 'string' ? { providerId: thread.providerId } : {}),
-        createdAt: typeof thread.createdAt === 'string' ? thread.createdAt : new Date(0).toISOString(),
-        updatedAt: typeof thread.updatedAt === 'string' ? thread.updatedAt : new Date(0).toISOString()
-      }]
-    })
+    return listRuntimeThreadsForMigration(this.options.runtimeFetch)
   }
 
   private async runOperation<T>(operationId: string, kind: 'export' | 'import', task: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -452,6 +433,33 @@ export class DataMigrationController {
     if (!window || window.isDestroyed()) throw new Error('main window is unavailable')
     return window
   }
+}
+
+export async function listRuntimeThreadsForMigration(
+  runtimeFetch: DataMigrationControllerOptions['runtimeFetch']
+): Promise<RuntimeThreadForMigration[]> {
+  // The public threads route caps an explicit `limit` at 500. Omitting it asks
+  // the store for the complete inventory, including archived and side threads.
+  const response = await runtimeFetch('/v1/threads?include_archived=true&include=side')
+  if (!response.ok) throw new Error(`Kun thread inventory failed (${response.status})`)
+  const value = await response.json() as { threads?: unknown[] }
+  return (Array.isArray(value.threads) ? value.threads : []).flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return []
+    const thread = raw as Record<string, unknown>
+    if (typeof thread.id !== 'string') return []
+    return [{
+      id: thread.id,
+      title: typeof thread.title === 'string' ? thread.title : '',
+      ...(typeof thread.workspace === 'string' ? { workspace: thread.workspace } : {}),
+      status: thread.status === 'archived' ? 'archived' as const : thread.status === 'running' ? 'running' as const : 'idle' as const,
+      ...(thread.relation === 'fork' || thread.relation === 'side' ? { relation: thread.relation } : {}),
+      ...(typeof thread.parentThreadId === 'string' ? { parentThreadId: thread.parentThreadId } : {}),
+      ...(typeof thread.model === 'string' ? { model: thread.model } : {}),
+      ...(typeof thread.providerId === 'string' ? { providerId: thread.providerId } : {}),
+      createdAt: typeof thread.createdAt === 'string' ? thread.createdAt : new Date(0).toISOString(),
+      updatedAt: typeof thread.updatedAt === 'string' ? thread.updatedAt : new Date(0).toISOString()
+    }]
+  })
 }
 
 class RendererMigrationRpc {

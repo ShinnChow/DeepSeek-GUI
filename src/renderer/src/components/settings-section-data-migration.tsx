@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
@@ -56,6 +56,7 @@ export function DataMigrationSettingsSection(): ReactElement {
   const [outputPath, setOutputPath] = useState('')
   const [runningThreadPolicy, setRunningThreadPolicy] = useState<'wait' | 'interrupt' | 'omit'>('wait')
   const [exportOperationId, setExportOperationId] = useState(() => operationId('export'))
+  const automaticEstimateStarted = useRef(false)
 
   const [importStep, setImportStep] = useState(0)
   const [packagePath, setPackagePath] = useState('')
@@ -81,6 +82,7 @@ export function DataMigrationSettingsSection(): ReactElement {
   }, [api, refreshStatus])
 
   const loadEstimate = useCallback(async () => {
+    automaticEstimateStarted.current = true
     setBusy(true)
     setError('')
     try {
@@ -100,8 +102,10 @@ export function DataMigrationSettingsSection(): ReactElement {
   }, [api, exportOperationId, preset, selectedWorkspaces, sensitiveAcknowledged])
 
   useEffect(() => {
-    if (flow === 'export' && exportStep === 0 && !estimate && !busy) void loadEstimate()
-  }, [busy, estimate, exportStep, flow, loadEstimate])
+    if (flow === 'export' && exportStep === 0 && !estimate && !automaticEstimateStarted.current) {
+      void loadEstimate()
+    }
+  }, [estimate, exportStep, flow, loadEstimate])
 
   useEffect(() => {
     if (flow === 'landing') return
@@ -253,6 +257,7 @@ export function DataMigrationSettingsSection(): ReactElement {
   }
 
   const beginExport = () => {
+    automaticEstimateStarted.current = false
     setExportOperationId(operationId('export'))
     setExportStep(0)
     setEstimate(null)
@@ -344,7 +349,7 @@ export function DataMigrationSettingsSection(): ReactElement {
               <div className="grid gap-3 sm:grid-cols-2">
                 {DEFAULT_CATEGORIES.map((category) => <label key={category} className="flex items-center gap-2 rounded-lg border border-ds-border px-3 py-2 text-[13px]"><input type="checkbox" checked={categories.includes(category)} onChange={() => setCategories(toggle(categories, category))} />{t(`dataMigrationCategory_${category}`)}</label>)}
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2"><Choice active={preset === 'complete'} title={t('dataMigrationPresetComplete')} body={t('dataMigrationPresetCompleteBody')} onClick={() => { setPreset('complete'); setEstimate(null) }} /><Choice active={preset === 'smaller'} title={t('dataMigrationPresetSmaller')} body={t('dataMigrationPresetSmallerBody')} onClick={() => { setPreset('smaller'); setEstimate(null) }} /></div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2"><Choice active={preset === 'complete'} title={t('dataMigrationPresetComplete')} body={t('dataMigrationPresetCompleteBody')} onClick={() => { automaticEstimateStarted.current = false; setPreset('complete'); setEstimate(null) }} /><Choice active={preset === 'smaller'} title={t('dataMigrationPresetSmaller')} body={t('dataMigrationPresetSmallerBody')} onClick={() => { automaticEstimateStarted.current = false; setPreset('smaller'); setEstimate(null) }} /></div>
               <div className="mt-5 rounded-xl border border-ds-border bg-ds-subtle/50 p-4">
                 <label className="text-[13px] font-medium text-ds-ink">{t('dataMigrationPassphrase')}</label>
                 <div className="mt-2 flex gap-2"><input className="settings-input flex-1" type={showExportPassphrase ? 'text' : 'password'} value={exportPassphrase} autoComplete="new-password" onChange={(event) => setExportPassphrase(event.target.value)} placeholder={t('dataMigrationPassphraseOptional')} /><button type="button" className="secondary-button" onClick={() => setShowExportPassphrase((value) => !value)}>{showExportPassphrase ? t('hide') : t('show')}</button></div>

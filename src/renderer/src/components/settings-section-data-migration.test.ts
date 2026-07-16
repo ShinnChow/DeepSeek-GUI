@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { act, create, type ReactTestRenderer } from 'react-test-renderer'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DataMigrationImportPlanSchema,
   DataMigrationReportSchema,
@@ -17,6 +18,7 @@ import {
   DataMigrationLanding,
   DataMigrationProgressCard,
   DataMigrationReportView,
+  DataMigrationSettingsSection,
   DataMigrationStepRail,
   DataMigrationVirtualConflictList,
   formatBytes,
@@ -28,6 +30,14 @@ import {
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }))
+
+beforeEach(() => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function plan() {
   return DataMigrationImportPlanSchema.parse({
@@ -209,5 +219,53 @@ describe('data migration settings states', () => {
     expect(html).toContain('role="list"')
     expect(html.match(/role="listitem"/g)?.length).toBeLessThan(10)
     expect(html).toContain('height:1160000px')
+  })
+})
+
+describe('data migration estimate loading', () => {
+  it('shows a failed automatic estimate once and waits for an explicit retry', async () => {
+    const estimateExport = vi.fn(async () => { throw new Error('Kun thread inventory failed (400)') })
+    vi.stubGlobal('window', {
+      kunGui: {
+        dataMigration: {
+          getStatus: async () => status(),
+          onProgress: () => () => undefined,
+          estimateExport
+        }
+      },
+      requestAnimationFrame: () => 1,
+      cancelAnimationFrame: vi.fn()
+    })
+    vi.stubGlobal('document', { querySelector: () => null })
+
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(createElement(DataMigrationSettingsSection))
+    })
+    const createButton = renderer.root.findAllByType('button').find((button) =>
+      button.findAllByType('span').some((span) => span.children.includes('dataMigrationCreateTitle'))
+    )
+    expect(createButton).toBeDefined()
+
+    await act(async () => {
+      createButton!.props.onClick()
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(estimateExport).toHaveBeenCalledOnce()
+    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('Kun thread inventory failed (400)')
+
+    const retryButton = renderer.root.findAllByType('button').find((button) =>
+      button.children.includes('dataMigrationRefreshEstimate')
+    )
+    expect(retryButton).toBeDefined()
+    await act(async () => {
+      retryButton!.props.onClick()
+      await Promise.resolve()
+    })
+    expect(estimateExport).toHaveBeenCalledTimes(2)
+
+    await act(async () => renderer.unmount())
   })
 })

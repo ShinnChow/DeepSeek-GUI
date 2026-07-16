@@ -1,5 +1,27 @@
-import { describe, expect, it } from 'vitest'
-import { publicMigrationError } from './data-migration-controller'
+import { describe, expect, it, vi } from 'vitest'
+import { listRuntimeThreadsForMigration, publicMigrationError } from './data-migration-controller'
+
+describe('data migration runtime thread inventory', () => {
+  it('requests the complete supported inventory without exceeding the route limit', async () => {
+    const runtimeFetch = vi.fn(async () => new Response(JSON.stringify({
+      threads: [{
+        id: 'thr_side_archived',
+        title: 'Side history',
+        workspace: '/workspace',
+        status: 'archived',
+        relation: 'side',
+        createdAt: '2026-07-16T00:00:00.000Z',
+        updatedAt: '2026-07-16T00:01:00.000Z'
+      }]
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    await expect(listRuntimeThreadsForMigration(runtimeFetch)).resolves.toEqual([
+      expect.objectContaining({ id: 'thr_side_archived', status: 'archived', relation: 'side' })
+    ])
+    expect(runtimeFetch).toHaveBeenCalledOnce()
+    expect(runtimeFetch).toHaveBeenCalledWith('/v1/threads?include_archived=true&include=side')
+  })
+})
 
 describe('data migration public IPC errors', () => {
   it('provides a stable code, destination impact, and next action without credentials or stack lines', () => {
