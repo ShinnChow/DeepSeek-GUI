@@ -111,7 +111,6 @@ export type ChildRunExecutor = (input: {
   guiDesignCanvas?: boolean
   /** Reasoning depth for this profile's child model requests (default 'off'). */
   reasoningEffort?: string
-  tokenBudget?: number
   returnFormat?: ChildReturnFormat
   signal: AbortSignal
 }) => Promise<{
@@ -184,7 +183,7 @@ export class DelegationRuntime {
   private readonly childSeqById = new Map<string, number>()
   /** Children waiting for a parallel slot, in FIFO order. */
   private readonly slotWaiters: SlotWaiter[] = []
-  /** Per-thread child counts (persisted + in-flight) for the budget cap. */
+  /** Per-thread child counts (persisted + in-flight) for the scheduler limit. */
   private readonly threadCounts = new Map<string, number>()
   /** Cached per-thread seed reads so concurrent first-spawns don't double-count. */
   private readonly threadSeeds = new Map<string, Promise<void>>()
@@ -243,7 +242,6 @@ export class DelegationRuntime {
     profile?: string
     /** Forward GUI design-canvas scope into the child turn when present. */
     guiDesignCanvas?: boolean
-    tokenBudget?: number
     returnFormat?: ChildReturnFormat
     /**
      * When true, runChild returns the queued ChildRunRecord immediately and
@@ -298,13 +296,12 @@ export class DelegationRuntime {
     const resolvedBlockedSkills = profile?.blockedSkills
     const promptPreamble = profile?.promptPreamble
     const resolvedReasoningEffort = profile?.reasoningEffort
-    const tokenBudget = positiveInteger(input.tokenBudget)
     const returnFormat = input.returnFormat ?? 'summary'
 
-    // Reserve against the per-thread budget before persisting anything.
+    // Reserve against the per-thread child-count limit before persisting anything.
     await this.ensureSeeded(input.parentThreadId)
     if (!this.reserveChild(input.parentThreadId)) {
-      throw new Error('delegation child-run budget exhausted')
+      throw new Error('delegation child-run limit exhausted')
     }
 
     const queuedAt = this.now()
@@ -322,7 +319,6 @@ export class DelegationRuntime {
       toolPolicy,
       ...(input.approvalPolicy ? { approvalPolicy: input.approvalPolicy } : {}),
       ...(input.sandboxMode ? { sandboxMode: input.sandboxMode } : {}),
-      tokenBudget,
       returnFormat,
       ...(input.detach ? { detached: true } : {}),
       status: 'queued',
@@ -368,7 +364,6 @@ export class DelegationRuntime {
         sandboxMode: input.sandboxMode,
         guiDesignCanvas: input.guiDesignCanvas === true,
         resolvedReasoningEffort,
-        tokenBudget,
         returnFormat,
         workspace: input.workspace,
         label: input.label,
@@ -431,13 +426,12 @@ export class DelegationRuntime {
         ...(promptPreamble ? { promptPreamble } : {}),
         ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
         ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
-        ...(tokenBudget ? { tokenBudget } : {}),
         returnFormat,
         signal
       }))
       const finishedAt = this.now()
       const usage = result.usage ?? record.usage
-      const contractError = childContractError({ tokenBudget, returnFormat }, result.evidence, usage)
+      const contractError = childContractError(returnFormat, result.evidence)
       record = ChildRunRecord.parse({
         ...record,
         status: contractError ? 'failed' : 'completed',
@@ -447,14 +441,7 @@ export class DelegationRuntime {
         toolInvocations: result.toolInvocations,
         prefixReused: result.prefixReused,
         inheritedHistoryItems: result.inheritedHistoryItems,
-        ...(contractError
-          ? {
-              error: contractError,
-              ...(usage.totalTokens > (tokenBudget ?? Number.POSITIVE_INFINITY)
-                ? { budgetExceeded: 'token' as const }
-                : {})
-            }
-          : {}),
+        ...(contractError ? { error: contractError } : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -503,7 +490,6 @@ export class DelegationRuntime {
     sandboxMode: SandboxMode | undefined
     guiDesignCanvas: boolean
     resolvedReasoningEffort: string | undefined
-    tokenBudget: number | undefined
     returnFormat: ChildReturnFormat
     workspace: string | undefined
     label: string | undefined
@@ -555,17 +541,12 @@ export class DelegationRuntime {
         ...(args.promptPreamble ? { promptPreamble: args.promptPreamble } : {}),
         ...(args.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
         ...(args.resolvedReasoningEffort ? { reasoningEffort: args.resolvedReasoningEffort } : {}),
-        ...(args.tokenBudget ? { tokenBudget: args.tokenBudget } : {}),
         returnFormat: args.returnFormat,
         signal
       }))
       const finishedAt = this.now()
       const usage = result.usage ?? record.usage
-      const contractError = childContractError(
-        { tokenBudget: args.tokenBudget, returnFormat: args.returnFormat },
-        result.evidence,
-        usage
-      )
+      const contractError = childContractError(args.returnFormat, result.evidence)
       record = ChildRunRecord.parse({
         ...record,
         status: contractError ? 'failed' : 'completed',
@@ -575,14 +556,7 @@ export class DelegationRuntime {
         toolInvocations: result.toolInvocations,
         prefixReused: result.prefixReused,
         inheritedHistoryItems: result.inheritedHistoryItems,
-        ...(contractError
-          ? {
-              error: contractError,
-              ...(usage.totalTokens > (args.tokenBudget ?? Number.POSITIVE_INFINITY)
-                ? { budgetExceeded: 'token' as const }
-                : {})
-            }
-          : {}),
+        ...(contractError ? { error: contractError } : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -947,23 +921,13 @@ async function executeWithParentSignal<T>(
 }
 
 function childContractError(
-  contract: { tokenBudget: number | undefined; returnFormat: ChildReturnFormat },
-  evidence: string[] | undefined,
-  usage: ChildRunRecord['usage']
+  returnFormat: ChildReturnFormat,
+  evidence: string[] | undefined
 ): string | undefined {
-  if (contract.tokenBudget !== undefined && usage.totalTokens > contract.tokenBudget) {
-    return `child token budget exhausted (${usage.totalTokens} > ${contract.tokenBudget})`
-  }
-  if (contract.returnFormat === 'evidence' && !evidence?.some((item) => item.trim().length > 0)) {
+  if (returnFormat === 'evidence' && !evidence?.some((item) => item.trim().length > 0)) {
     return 'child contract requires evidence but none was returned'
   }
   return undefined
-}
-
-function positiveInteger(value: number | undefined): number | undefined {
-  if (value === undefined) return undefined
-  if (!Number.isInteger(value) || value <= 0) throw new Error('child budgets must be positive integers')
-  return value
 }
 
 function formatDetachedChildDisplayText(record: ChildRunRecord): string {

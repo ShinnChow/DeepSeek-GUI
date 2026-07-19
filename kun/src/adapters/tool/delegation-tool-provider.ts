@@ -33,11 +33,6 @@ export function buildDelegationToolProviders(runtime: DelegationRuntime | undefi
               type: 'boolean',
               description: 'Fire-and-forget. The call returns immediately with a queued/running record; the child keeps executing in the background and can be checked via diagnostics or aborted from the GUI.'
             },
-            tokenBudget: {
-              type: 'integer',
-              minimum: 1,
-              description: 'Optional hard cap for total child tokens.'
-            },
             returnFormat: {
               type: 'string',
               enum: ['summary', 'evidence'],
@@ -51,9 +46,6 @@ export function buildDelegationToolProviders(runtime: DelegationRuntime | undefi
         execute: async (args, context, onUpdate) => {
           const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
           if (!prompt) return { output: { error: 'prompt is required' }, isError: true }
-          if (args.tokenBudget !== undefined && !isPositiveInteger(args.tokenBudget)) {
-            return { output: { error: 'tokenBudget must be a positive integer' }, isError: true }
-          }
           const explicitModel = typeof args.model === 'string' ? args.model.trim() : ''
           const explicitProviderId = typeof args.providerId === 'string' ? args.providerId.trim() : ''
           if (Boolean(explicitModel) !== Boolean(explicitProviderId)) {
@@ -81,7 +73,6 @@ export function buildDelegationToolProviders(runtime: DelegationRuntime | undefi
             ...(context.sandboxMode ? { sandboxMode: context.sandboxMode } : {}),
             ...(context.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
             ...(args.detach === true ? { detach: true } : {}),
-            ...(isPositiveInteger(args.tokenBudget) ? { tokenBudget: args.tokenBudget } : {}),
             ...(args.returnFormat === 'evidence' ? { returnFormat: 'evidence' as const } : {}),
             // Emit a partial result the moment the child id exists, so the GUI
             // can offer "open session" (and stream the child live) while the
@@ -109,8 +100,6 @@ export function buildDelegationToolProviders(runtime: DelegationRuntime | undefi
               evidence: record.evidence,
               usage: record.usage,
               returnFormat: record.returnFormat,
-              ...(record.tokenBudget ? { tokenBudget: record.tokenBudget } : {}),
-              ...(record.budgetExceeded ? { budgetExceeded: record.budgetExceeded } : {}),
               ...(record.profile ? { profile: record.profile } : {}),
               ...(record.toolPolicy ? { toolPolicy: record.toolPolicy } : {}),
               ...(record.toolInvocations !== undefined ? { toolInvocations: record.toolInvocations } : {}),
@@ -125,17 +114,13 @@ export function buildDelegationToolProviders(runtime: DelegationRuntime | undefi
   }]
 }
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0
-}
-
 function buildDelegateTaskDescription(
   runtime: DelegationRuntime,
   profiles: { name: string; mode: string; toolPolicy: string; model?: string; providerId?: string; description?: string }[]
 ): string {
   const lines = [
     'Run a child agent task and return its summary.',
-    'Issue several delegate_task calls in one message to investigate in parallel; runs queue once the parallel budget is full.',
+    'Issue several delegate_task calls in one message to investigate in parallel; runs queue once parallel capacity is full.',
     `Children default to the "${runtime.defaultToolPolicy}" tool policy (read-only children may only read/grep/find/ls and cannot edit, run shell, or delegate further).`
   ]
   if (profiles.length) {

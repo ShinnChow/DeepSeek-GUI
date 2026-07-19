@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -78,33 +78,60 @@ describe('DelegationRuntime', () => {
       parentTurnId: 'turn_1',
       prompt: 'second',
       signal: new AbortController().signal
-    })).rejects.toThrow(/budget/)
+    })).rejects.toThrow(/limit/)
   })
 
-  it('enforces per-child token budgets', async () => {
+  it('records high child usage without enforcing an execution budget', async () => {
     const externalUsage: unknown[] = []
-    const tokenRuntime = createRuntime({
+    const runtime = createRuntime({
       recordExternalUsage: (_threadId, usage) => externalUsage.push(usage),
       executor: async () => ({
-        summary: 'used too many tokens',
-        usage: { promptTokens: 8, completionTokens: 4, totalTokens: 12 }
+        summary: 'completed a large investigation',
+        usage: { promptTokens: 800_000, completionTokens: 400_000, totalTokens: 1_200_000 },
+        toolInvocations: 500
       })
     })
-    const tokenLimited = await tokenRuntime.runChild({
+    const completed = await runtime.runChild({
       parentThreadId: 'thr_tokens',
       parentTurnId: 'turn_tokens',
-      prompt: 'bounded task',
-      tokenBudget: 10,
+      prompt: 'large task',
       signal: new AbortController().signal
     })
-    expect(tokenLimited).toMatchObject({
+    expect(completed).toMatchObject({
+      status: 'completed',
+      usage: { totalTokens: 1_200_000 },
+      toolInvocations: 500
+    })
+    expect(completed).not.toHaveProperty('tokenBudget')
+    expect(completed).not.toHaveProperty('budgetExceeded')
+    expect(externalUsage).toHaveLength(1)
+  })
+
+  it('loads historical child budget fields as read-only compatibility data', async () => {
+    const root = join(dir, 'legacy-children')
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, 'child_legacy.json'), JSON.stringify({
+      id: 'child_legacy',
+      parentThreadId: 'thr_legacy',
+      parentTurnId: 'turn_legacy',
+      prompt: 'old task',
       status: 'failed',
       tokenBudget: 10,
+      timeBudgetMs: 1_000,
       budgetExceeded: 'token',
-      usage: { totalTokens: 12 }
-    })
-    expect(tokenLimited.error).toContain('12 > 10')
-    expect(externalUsage).toHaveLength(1)
+      error: 'legacy budget failure',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:01.000Z'
+    }), 'utf8')
+
+    await expect(new FileDelegationStore(root).list('thr_legacy')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'child_legacy',
+        tokenBudget: 10,
+        timeBudgetMs: 1_000,
+        budgetExceeded: 'token'
+      })
+    ])
   })
 
   it('validates evidence-return contracts', async () => {
@@ -164,13 +191,14 @@ describe('DelegationRuntime', () => {
     }
   })
 
-  it('does not advertise a wall-clock budget for delegate_task', () => {
+  it('does not advertise execution budgets for delegate_task', () => {
     const runtime = createRuntime()
     const tool = buildDelegationToolProviders(runtime)[0]?.tools[0]
     const properties = tool?.inputSchema.properties as Record<string, unknown> | undefined
 
     expect(tool?.description).toContain('Run a child agent task')
     expect(tool?.description).not.toContain('bounded child agent task')
+    expect(properties).not.toHaveProperty('tokenBudget')
     expect(properties).not.toHaveProperty('timeBudgetMs')
   })
 
@@ -340,7 +368,7 @@ describe('DelegationRuntime', () => {
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
   })
 
-  it('rejects invalid delegate_task budgets before starting a child', async () => {
+  it('ignores legacy delegate_task budget arguments instead of enforcing them', async () => {
     const runtime = createRuntime()
     const host = new LocalToolHost({
       registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
@@ -358,8 +386,11 @@ describe('DelegationRuntime', () => {
       awaitApproval: async () => 'allow'
     })
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
-    expect((await runtime.diagnostics('thr_1')).childRuns).toEqual([])
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    expect((await runtime.diagnostics('thr_1')).childRuns).toEqual([
+      expect.objectContaining({ status: 'completed' })
+    ])
+    expect((await runtime.diagnostics('thr_1')).childRuns[0]).not.toHaveProperty('tokenBudget')
   })
 
   it('caps concurrency at maxParallel and queues the overflow instead of erroring', async () => {
