@@ -1148,6 +1148,7 @@ export function Workbench(): ReactElement {
             returnParentTitle: threads.find((thread) => thread.id === activeThreadParentId)?.title?.trim() ?? '',
             showReturnBar: activeThreadRelation === 'side' && Boolean(activeThreadParentId),
             composerProps: chatComposerProps,
+            conversationDropWorkspaceRoot: activeSkillWorkspace,
             terminalOpen,
             terminalWorkspaceRoot: fileTreeWorkspaceRoot,
             terminalHeight,

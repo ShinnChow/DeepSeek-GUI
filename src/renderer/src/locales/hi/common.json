@@ -1558,6 +1558,7 @@
   "composerVoiceFailed": "Voice transcription failed: {{message}}",
   "composerImageUnavailable": "इस रनटाइम के लिए छवि इनपुट अनुपलब्ध है.",
   "composerAttachmentUnavailable": "अनुलग्नक अपलोड अनुपलब्ध है.",
+  "composerDropFilesHere": "इस बातचीत में फ़ाइलें जोड़ने के लिए छोड़ें",
   "composerAttachmentModelUnsupported": "चयनित मॉडल छवियाँ नहीं पढ़ सकता. विज़न मॉडल पर स्विच करें या अनुलग्नक हटा दें।",
   "composerPdfAttachmentUnavailable": "इस फ़ाइल के लिए पीडीएफ पाठ निष्कर्षण उपलब्ध नहीं है।",
   "composerPdfAttachmentNoText": "इस पीडीएफ में कोई निकालने योग्य पाठ नहीं है और अंतर्निहित ओसीआर पढ़ने योग्य पाठ का पता नहीं लगा सका। स्पष्ट रूप से स्कैन करने का प्रयास करें या प्रासंगिक पृष्ठों को चिपकाएँ।",

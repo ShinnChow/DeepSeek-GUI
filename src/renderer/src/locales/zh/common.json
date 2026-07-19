@@ -1558,6 +1558,7 @@
   "composerVoiceFailed": "语音转写失败：{{message}}",
   "composerImageUnavailable": "当前运行时暂不可用图片输入。",
   "composerAttachmentUnavailable": "当前暂不可上传附件。",
+  "composerDropFilesHere": "松开以添加文件到当前对话",
   "composerAttachmentModelUnsupported": "当前选择的模型不能读取图片，请切换到识图模型或移除图片附件。",
   "composerPdfAttachmentUnavailable": "当前无法读取这个 PDF。",
   "composerPdfAttachmentNoText": "这个 PDF 没有可提取文本，内置 OCR 也没有识别到可读文字，请尝试更清晰的扫描件或粘贴相关页面。",

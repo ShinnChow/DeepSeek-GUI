@@ -1558,6 +1558,7 @@
   "composerVoiceFailed": "Voice transcription failed: {{message}}",
   "composerImageUnavailable": "Image input is unavailable for this runtime.",
   "composerAttachmentUnavailable": "Attachment upload is unavailable.",
+  "composerDropFilesHere": "Release to add files to this conversation",
   "composerAttachmentModelUnsupported": "The selected model cannot read images. Switch to a vision model or remove the attachment.",
   "composerPdfAttachmentUnavailable": "PDF text extraction is unavailable for this file.",
   "composerPdfAttachmentNoText": "This PDF has no extractable text and the built-in OCR could not detect readable text. Try a clearer scan or paste the relevant pages.",

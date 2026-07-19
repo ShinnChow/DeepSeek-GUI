@@ -1558,6 +1558,7 @@
   "composerVoiceFailed": "การถอดเสียงเป็นคำล้มเหลว: {{message}}",
   "composerImageUnavailable": "อินพุตรูปภาพไม่พร้อมใช้งานสำหรับรันไทม์นี้",
   "composerAttachmentUnavailable": "การอัปโหลดไฟล์แนบไม่พร้อมใช้งาน",
+  "composerDropFilesHere": "ปล่อยเพื่อเพิ่มไฟล์ในการสนทนานี้",
   "composerAttachmentModelUnsupported": "รุ่นที่เลือกไม่สามารถอ่านภาพได้ สลับไปใช้โมเดลการมองเห็นหรือลบไฟล์แนบออก",
   "composerPdfAttachmentUnavailable": "การแยกข้อความ PDF ไม่พร้อมใช้งานสำหรับไฟล์นี้",
   "composerPdfAttachmentNoText": "PDF นี้ไม่มีข้อความที่แยกได้ และ OCR ในตัวตรวจไม่พบข้อความที่อ่านได้ ลองสแกนให้ชัดเจนยิ่งขึ้นหรือวางหน้าที่เกี่ยวข้อง",

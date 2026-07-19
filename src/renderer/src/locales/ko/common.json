@@ -1558,6 +1558,7 @@
   "composerVoiceFailed": "음성 녹음 실패: {{message}}",
   "composerImageUnavailable": "이 런타임에는 이미지 입력을 사용할 수 없습니다.",
   "composerAttachmentUnavailable": "첨부파일을 업로드할 수 없습니다.",
+  "composerDropFilesHere": "놓아서 이 대화에 파일 추가",
   "composerAttachmentModelUnsupported": "선택한 모델은 이미지를 읽을 수 없습니다. 비전 모델로 전환하거나 부착물을 제거하세요.",
   "composerPdfAttachmentUnavailable": "이 파일에서는 PDF 텍스트 추출을 사용할 수 없습니다.",
   "composerPdfAttachmentNoText": "이 PDF에는 추출 가능한 텍스트가 없으며 내장 OCR이 읽을 수 있는 텍스트를 감지할 수 없습니다. 더 선명한 스캔을 시도하거나 관련 페이지를 붙여넣으세요.",

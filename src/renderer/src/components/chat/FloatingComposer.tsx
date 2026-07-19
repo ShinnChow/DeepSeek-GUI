@@ -43,10 +43,7 @@ import { useChatStore } from '../../store/chat-store'
 import type { AppRoute } from '../../store/chat-store-types'
 import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import {
-  COMPOSER_FILE_REFERENCE_DRAG_MIME,
-  composerFileReferenceFromPath,
   isComposerDirectoryReference,
-  parseComposerFileReferenceDragData,
   type ComposerFileReference
 } from '../../lib/composer-file-references'
 import {
@@ -92,12 +89,7 @@ import {
 } from './FloatingComposerExecutionPicker'
 import {
   FloatingComposerAttachments,
-  composerImageMimeTypeFromFileName as imageMimeTypeFromFileName,
-  handleComposerImagePaste,
-  imageFilesFromTransfer,
-  imageTransferHasImages,
-  isComposerImageMimeType as isImageMimeType,
-  isComposerPdfFile as isPdfFile
+  handleComposerImagePaste
 } from './FloatingComposerAttachments'
 export {
   handleComposerImagePaste,
@@ -120,6 +112,11 @@ import { FloatingComposerFileMentionMenu } from './FloatingComposerFileMentionMe
 import { useComposerSlashCommandMenu } from './use-composer-slash-command-menu'
 import { FloatingComposerSlashCommandMenu } from './FloatingComposerSlashCommandMenu'
 import { FloatingComposerTodoProgress } from './FloatingComposerTodoProgress'
+import {
+  canAcceptComposerFileDrop,
+  routeComposerFileDrop,
+  type ComposerFileDropOptions
+} from './composer-file-drop'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
 export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicker'
@@ -1046,51 +1043,25 @@ export function FloatingComposer({
     })
   }
 
+  const composerFileDropOptions: ComposerFileDropOptions = {
+    canPickAttachment,
+    canPickLocalFileReference,
+    canAddFileReference,
+    workspaceRoot: effectiveWorkspaceRoot,
+    onPickAttachments,
+    onAddFileReference,
+    getPathForFile: (file) => window.kunGui.getPathForFile(file)
+  }
+
   const handleComposerDragOver = (event: ReactDragEvent<HTMLDivElement>): void => {
-    const dataTransferTypes = Array.from(event.dataTransfer.types ?? [])
-    const canAcceptFileReference = canAddFileReference && dataTransferTypes.includes(COMPOSER_FILE_REFERENCE_DRAG_MIME)
-    const canAcceptImages = canPickAttachment && imageTransferHasImages(event.dataTransfer)
-    const canAcceptPdf = canPickAttachment && Array.from(event.dataTransfer.files ?? []).some(isPdfFile)
-    if (!dataTransferTypes.includes('Files') && !canAcceptImages && !canAcceptPdf && !canAcceptFileReference) return
+    if (!canAcceptComposerFileDrop(event.dataTransfer, composerFileDropOptions)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
   }
 
   const handleComposerDrop = (event: ReactDragEvent<HTMLDivElement>): void => {
-    const draggedReference = canAddFileReference
-      ? parseComposerFileReferenceDragData(
-          event.dataTransfer.getData(COMPOSER_FILE_REFERENCE_DRAG_MIME),
-          effectiveWorkspaceRoot
-        )
-      : null
-    const imageFiles = canPickAttachment ? imageFilesFromTransfer(event.dataTransfer) : []
-    const rawFiles = Array.from(event.dataTransfer.files ?? [])
-    const isImageLike = (file: File): boolean =>
-      isImageMimeType(file.type) || Boolean(imageMimeTypeFromFileName(file.name))
-    const pdfFiles = canPickAttachment ? rawFiles.filter(isPdfFile) : []
-    const pathFiles = canPickLocalFileReference && onAddFileReference
-      ? rawFiles.filter((file) => !isImageLike(file) && !isPdfFile(file))
-      : []
-    if (!draggedReference && imageFiles.length === 0 && pdfFiles.length === 0 && pathFiles.length === 0) return
+    if (!routeComposerFileDrop(event.dataTransfer, composerFileDropOptions)) return
     event.preventDefault()
-    if (draggedReference) onAddFileReference?.(draggedReference)
-    if ((imageFiles.length > 0 || pdfFiles.length > 0) && onPickAttachments) {
-      onPickAttachments([...imageFiles, ...pdfFiles])
-    }
-    if (pathFiles.length > 0) {
-      const paths: string[] = []
-      for (const file of pathFiles) {
-        try {
-          const path = window.kunGui.getPathForFile(file)
-          if (path) paths.push(path)
-        } catch {
-          // ignore files we cannot resolve a filesystem path for
-        }
-      }
-      for (const path of paths) {
-        onAddFileReference?.(composerFileReferenceFromPath(path, effectiveWorkspaceRoot))
-      }
-    }
     draft.focusComposer()
   }
 

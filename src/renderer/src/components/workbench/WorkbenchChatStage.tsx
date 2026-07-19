@@ -7,7 +7,9 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
+import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import { FloatingComposer } from '../chat/FloatingComposer'
+import { ConversationFileDropZone } from '../chat/ConversationFileDropZone'
 import { LazyMessageTimeline } from '../chat/LazyMessageTimeline'
 import { SubagentReturnBar } from '../chat/message-timeline-empty'
 import { WorkbenchTopActions } from '../chat/WorkbenchTopBar'
@@ -45,6 +47,7 @@ export type WorkbenchChatStageProps = {
   returnParentTitle: string
   showReturnBar: boolean
   composerProps: FloatingComposerProps
+  conversationDropWorkspaceRoot: string
   terminalOpen: boolean
   terminalWorkspaceRoot: string
   terminalHeight: number
@@ -93,6 +96,7 @@ export function WorkbenchChatStage({
   returnParentTitle,
   showReturnBar,
   composerProps,
+  conversationDropWorkspaceRoot,
   terminalOpen,
   terminalWorkspaceRoot,
   terminalHeight,
@@ -118,6 +122,29 @@ export function WorkbenchChatStage({
   onExtensionCommand
 }: WorkbenchChatStageProps): ReactElement {
   const { t } = useTranslation('common')
+  const effectiveConversationDropWorkspaceRoot = normalizeWorkspaceRoot(conversationDropWorkspaceRoot)
+  const canComposeForConversationDrop =
+    composerProps.fileReferenceEnabled === true &&
+    composerProps.runtimeReady &&
+    (composerProps.hasActiveThread || Boolean(effectiveConversationDropWorkspaceRoot))
+  const conversationFileDropOptions = {
+    canPickAttachment:
+      canComposeForConversationDrop &&
+      composerProps.attachmentUploadEnabled === true &&
+      composerProps.attachmentUploadBusy !== true,
+    canPickLocalFileReference:
+      canComposeForConversationDrop &&
+      Boolean(composerProps.onPickFileReferences),
+    canAddFileReference:
+      canComposeForConversationDrop &&
+      Boolean(effectiveConversationDropWorkspaceRoot) &&
+      Boolean(composerProps.onAddFileReference),
+    workspaceRoot: effectiveConversationDropWorkspaceRoot,
+    onPickAttachments: composerProps.onPickAttachments,
+    onAddFileReference: composerProps.onAddFileReference,
+    getPathForFile: (file: File) => window.kunGui.getPathForFile(file)
+  }
+
   return (
     <section
       className="ds-chat-stage ds-drag relative isolate flex min-h-0 min-w-0 flex-1 flex-col"
@@ -164,7 +191,10 @@ export function WorkbenchChatStage({
             </div>
           </div>
         </header>
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <ConversationFileDropZone
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          options={conversationFileDropOptions}
+        >
           <LazyMessageTimeline
             fallback={<WorkbenchPaneFallback />}
             blocks={blocks}
@@ -199,7 +229,7 @@ export function WorkbenchChatStage({
           />
           {uiModeCameosEnabled && !focusModeEnabled ? <IkunCameoLayer /> : null}
           {!focusModeEnabled ? <KunCelebrationLayer active={busy} suppressed={Boolean(runtimeError)} /> : null}
-        </div>
+        </ConversationFileDropZone>
         <div className="ds-composer-dock ds-no-drag relative flex shrink-0 justify-center px-2 pb-3 pt-0 sm:px-4 md:px-6 lg:px-8">
           {showReturnBar ? (
             <SubagentReturnBar
