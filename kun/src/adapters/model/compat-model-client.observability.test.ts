@@ -198,7 +198,11 @@ describe('CompatModelClient request observability', () => {
 
     expect(trace.status).toBe('transport_error')
     expect(trace.error).toBe('socket unavailable')
-    expect(chunks).toContainEqual({ kind: 'error', message: 'model request failed: socket unavailable' })
+    expect(chunks).toContainEqual(expect.objectContaining({
+      kind: 'error',
+      message: 'model request failed: socket unavailable',
+      failure: { category: 'network', failoverAllowed: true }
+    }))
   })
 
   it('continues the provider call when observability capture itself fails', async () => {

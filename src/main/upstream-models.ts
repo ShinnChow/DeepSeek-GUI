@@ -9,7 +9,8 @@ import {
   modelProfileSupportsTextChat,
   modelProviderModelProfile,
   resolveKunRuntimeSettings,
-  type AppSettingsV1
+  type AppSettingsV1,
+  type ModelProviderModelProfileV1
 } from '../shared/app-settings'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '../shared/default-composer-models'
 import type { ModelProviderModelGroup } from '../shared/kun-gui-api'
@@ -104,6 +105,38 @@ async function readConfiguredModelGroups(settings: AppSettingsV1): Promise<Model
       label: provider.name,
       modelIds,
       modelProfiles: provider.modelProfiles
+    })
+  }
+  const providerSettings = getModelProviderSettings(settings)
+  for (const pool of providerSettings.routePools) {
+    if (!pool.enabled || pool.targets.length === 0) continue
+    const profiles = pool.targets.flatMap((target) => {
+      const provider = providerSettings.providers.find((candidate) => candidate.id === target.providerId)
+      return provider ? [modelProviderModelProfile(provider, target.modelId) ?? {
+        inputModalities: ['text'],
+        outputModalities: ['text'],
+        supportsToolCalling: true,
+        messageParts: ['text']
+      } satisfies ModelProviderModelProfileV1] : []
+    })
+    if (profiles.length === 0) continue
+    const inputModalities = [...new Set(profiles.flatMap((profile) => profile.inputModalities))]
+    const outputModalities = [...new Set(profiles.flatMap((profile) => profile.outputModalities))]
+    const messageParts = [...new Set(profiles.flatMap((profile) => profile.messageParts))]
+    groups.push({
+      providerId: `route-pool:${pool.id}`,
+      label: pool.name,
+      modelIds: [pool.modelId],
+      modelProfiles: {
+        [pool.modelId]: {
+          inputModalities,
+          outputModalities,
+          messageParts,
+          supportsToolCalling: profiles.some((profile) => profile.supportsToolCalling),
+          contextWindowTokens: Math.max(...profiles.map((profile) => profile.contextWindowTokens ?? 0)) || undefined,
+          maxOutputTokens: Math.max(...profiles.map((profile) => profile.maxOutputTokens ?? 0)) || undefined
+        }
+      }
     })
   }
   return mergeModelGroups(groups)

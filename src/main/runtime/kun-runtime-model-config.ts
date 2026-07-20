@@ -79,6 +79,14 @@ export function providersConfigForRuntime(
   return out
 }
 
+export function routePoolsConfigForRuntime(settings: AppSettingsV1) {
+  return getModelProviderSettings(settings).routePools
+}
+
+export function localModelGatewayConfigForRuntime(settings: AppSettingsV1) {
+  return getModelProviderSettings(settings).localGateway
+}
+
 export function tokenEconomyConfigForRuntime(
   tokenEconomy: Pick<KunRuntimeSettingsV1, 'tokenEconomy'>['tokenEconomy'] | undefined,
   existing: Record<string, unknown>

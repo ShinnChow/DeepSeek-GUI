@@ -78,6 +78,33 @@ describe('model provider retry settings', () => {
   })
 })
 
+describe('model route pool settings', () => {
+  it('normalizes legacy settings to an empty route catalog', () => {
+    const settings = normalizeModelProviderSettings(undefined)
+    expect(settings.routePools).toEqual([])
+    expect(settings.localGateway).toEqual({ enabled: false })
+  })
+
+  it('keeps valid concrete targets and disables colliding aliases', () => {
+    const settings = normalizeModelProviderSettings({
+      providers: [{ id: 'provider-a', name: 'A', baseUrl: 'https://a.example', models: ['kimi-k3'] }],
+      routePools: [{
+        id: 'pool', name: 'Pool', modelId: 'kimi-auto', enabled: true, strategy: 'adaptive',
+        targets: [{ id: 'a', providerId: 'provider-a', modelId: 'kimi-k3', enabled: true, weight: 200 }],
+        failurePolicy: { failoverHttpStatusCodes: [429], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+        healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+      }, {
+        id: 'collision', name: 'Collision', modelId: 'kimi-k3', enabled: true, strategy: 'priority',
+        targets: [{ id: 'b', providerId: 'provider-a', modelId: 'kimi-k3', enabled: true, weight: 1 }],
+        failurePolicy: { failoverHttpStatusCodes: [429], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+        healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+      }]
+    })
+    expect(settings.routePools[0]).toMatchObject({ enabled: true, strategy: 'adaptive', targets: [{ providerId: 'provider-a', weight: 100 }] })
+    expect(settings.routePools[1].enabled).toBe(false)
+  })
+})
+
 describe('ChatGPT subscription migration', () => {
   it('renames only the legacy default and upgrades exactly the legacy model set', () => {
     const normalized = normalizeModelProviderSettings({

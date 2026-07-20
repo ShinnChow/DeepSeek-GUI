@@ -1,13 +1,22 @@
 import type { TurnItem } from '../contracts/items.js'
 import type { UsageSnapshot } from '../contracts/usage.js'
 import type { ToolProviderKind } from './tool-host.js'
+import type { ModelFailureMetadata } from '../contracts/model-route-pool.js'
 
 /**
  * One streaming chunk from a model response. The loop consumes these
  * chunks to drive assistant text and reasoning deltas, tool call
  * accumulation, and usage reporting.
  */
-export type ModelStreamChunk =
+export type ModelRouteTargetMetadata = {
+  routePoolId: string
+  targetId: string
+  providerId: string
+  modelId: string
+  requestedModelId: string
+}
+
+export type ModelStreamChunk = (
   | { kind: 'assistant_text_delta'; text: string }
   | { kind: 'assistant_reasoning_delta'; text: string }
   | { kind: 'tool_call_delta'; callId: string; toolName?: string; argumentsDelta?: string }
@@ -16,7 +25,8 @@ export type ModelStreamChunk =
   | { kind: 'image_generation_complete'; imageBase64: string; mimeType: string }
   | { kind: 'usage'; usage: UsageSnapshot }
   | { kind: 'completed'; stopReason: 'stop' | 'tool_calls' | 'length' | 'error' }
-  | { kind: 'error'; message: string; code?: string }
+  | { kind: 'error'; message: string; code?: string; failure?: ModelFailureMetadata }
+) & { route?: ModelRouteTargetMetadata }
 
 /**
  * A single model turn request: the immutable prefix items, the running

@@ -15,6 +15,7 @@ import { HybridSessionStore, HybridThreadStore } from '../adapters/hybrid/index.
 import { CompatModelClient } from '../adapters/model/compat-model-client.js'
 import { ExtensionModelProviderRegistry } from '../adapters/model/extension-model-provider.js'
 import { MultiProviderModelClient } from '../adapters/model/multi-provider-model-client.js'
+import { RoutePoolHealthStore, RoutePoolModelClient } from '../adapters/model/route-pool-model-client.js'
 import { CapabilityRegistry } from '../adapters/tool/capability-registry.js'
 import {
   createAgentSdkRuntime,
@@ -167,6 +168,7 @@ import { ExtensionMediaArchiveJobService } from '../services/extension-media-arc
 import { ExtensionVisualAnalysisService } from '../services/extension-visual-analysis-service.js'
 import { RuntimeMigrationService } from '../services/runtime-migration-service.js'
 import { RuntimeMigrationImportService } from '../services/runtime-migration-import-service.js'
+import type { LocalModelGatewayConfig, ModelRoutePoolConfig } from '../contracts/model-route-pool.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -198,6 +200,8 @@ export type KunServeRuntimeOptions = {
    * Empty/absent → runtime stays single-provider (current behavior).
    */
   providers?: Record<string, ServeProviderConfig>
+  routePools?: ModelRoutePoolConfig[]
+  localModelGateway?: LocalModelGatewayConfig
   model: string
   approvalPolicy: ApprovalPolicy
   sandboxMode: SandboxMode
@@ -384,15 +388,24 @@ export async function createKunServeRuntime(
   }
   await migrateLegacyProviderCredentials()
   activeOptions = await hydrateLegacyCredentialOptions(activeOptions, legacyCredentialMigration)
-  const modelClient = new MultiProviderModelClient(
+  const directModelClient = new MultiProviderModelClient(
     buildModelClientRouterInput(activeOptions, modelCapabilities, llmDebug)
+  )
+  const routeHealth = new RoutePoolHealthStore(join(activeOptions.dataDir, 'model-routing', 'health.json'))
+  await routeHealth.load()
+  const modelClient = new RoutePoolModelClient(
+    directModelClient,
+    activeOptions.routePools ?? [],
+    modelCapabilities,
+    routeHealth
   )
   const replaceRoutedModelClients = (): void => {
     const next = buildModelClientRouterInput(activeOptions, modelCapabilities, llmDebug)
     for (const [providerId, client] of extensionModelProviders.clientMap()) {
       next.providers.set(providerId, client)
     }
-    modelClient.replace(next)
+    directModelClient.replace(next)
+    modelClient.replacePools(activeOptions.routePools ?? [])
   }
   const stopExtensionModelListener = extensionModelProviders.onDidChange(replaceRoutedModelClients)
   const hasMcpOAuth = Object.values(activeOptions.capabilities?.mcp?.servers ?? {}).some((server) =>
@@ -1341,6 +1354,13 @@ export async function createKunServeRuntime(
 	      mergeRuntimeConfigApplyOptions(activeOptions, request),
 	      legacyCredentialMigration
 	    )
+	    if (nextOptions.localModelGateway?.enabled && !isLoopbackHost(nextOptions.host)) {
+	      return {
+	        ok: false,
+	        code: 'invalid_config',
+	        message: 'unauthenticated local model gateway requires a loopback serve host'
+	      }
+	    }
 	    const nextAgentSdkSignature = agentSdkProviderSignature(nextOptions)
 	    if (nextAgentSdkSignature !== agentSdkSignature) {
 	      return {
@@ -1618,6 +1638,11 @@ export async function createKunServeRuntime(
 	      bundledSeedResults
 	    },
 	    modelClient,
+	    modelGateway: {
+	      enabled: () => activeOptions.localModelGateway?.enabled === true,
+	      pools: () => modelClient.routePools(),
+	      health: routeHealth
+	    },
 	    get defaultModel() {
 	      return activeOptions.model
 	    },
@@ -1874,6 +1899,8 @@ function mergeRuntimeConfigApplyOptions(
     retry: serve.retry ?? current.retry,
     headers: serve.headers ?? current.headers,
     providers: serve.providers ?? current.providers,
+    routePools: serve.routePools ?? current.routePools,
+    localModelGateway: serve.localModelGateway ?? current.localModelGateway,
     model: serve.model ?? current.model,
     approvalPolicy: serve.approvalPolicy ?? current.approvalPolicy,
     sandboxMode: serve.sandboxMode ?? current.sandboxMode,

@@ -13,6 +13,7 @@ import {
   DEFAULT_VIDEO_GENERATION_PROTOCOL,
   MODEL_REASONING_EFFORTS,
   MODEL_REASONING_REQUEST_PROTOCOLS,
+  MODEL_ROUTE_STRATEGIES,
   CUSTOM_IMAGE_GENERATION_PROVIDER_ID,
   CUSTOM_SPEECH_TO_TEXT_PROVIDER_ID,
   CUSTOM_TEXT_TO_SPEECH_PROVIDER_ID,
@@ -40,6 +41,10 @@ import {
   type ModelProviderProfilePatchV1,
   type ModelProviderProfileV1,
   type ModelRequestRetrySettingsV1,
+  type ModelRouteFailurePolicyV1,
+  type ModelRouteHealthPolicyV1,
+  type ModelRoutePoolV1,
+  type ModelRouteStrategy,
   type ModelProviderSettingsPatchV1,
   type ModelProviderSettingsV1,
   type NetworkProxySettingsV1,
@@ -99,7 +104,9 @@ export function defaultModelProviderSettings(): ModelProviderSettingsV1 {
     apiKey: defaultProvider.apiKey,
     baseUrl: defaultProvider.baseUrl,
     proxy: defaultNetworkProxySettings(),
-    providers: [defaultProvider]
+    providers: [defaultProvider],
+    routePools: [],
+    localGateway: { enabled: false }
   }
 }
 
@@ -130,11 +137,14 @@ export function normalizeModelProviderSettings(
       : provider)
   }
   const providers = [...providersById.values()]
+  const routePools = normalizeModelRoutePools(input?.routePools, providers)
   return {
     apiKey,
     baseUrl,
     proxy: normalizeNetworkProxySettings(input?.proxy),
-    providers
+    providers,
+    routePools,
+    localGateway: { enabled: input?.localGateway?.enabled === true }
   }
 }
 
@@ -150,8 +160,88 @@ export function mergeModelProviderSettings(
           ...current.proxy,
           ...patch.proxy
         }
-      : current.proxy
+      : current.proxy,
+    routePools: patch?.routePools ?? current.routePools,
+    localGateway: patch?.localGateway
+      ? { ...current.localGateway, ...patch.localGateway }
+      : current.localGateway
   })
+}
+
+export const DEFAULT_MODEL_ROUTE_FAILURE_POLICY: ModelRouteFailurePolicyV1 = {
+  failoverHttpStatusCodes: [401, 402, 403, 404, 408, 425, 429, 500, 502, 503, 504],
+  failoverOnNetworkError: true,
+  failoverOnTimeout: true,
+  failoverOnAuthError: true
+}
+
+export const DEFAULT_MODEL_ROUTE_HEALTH_POLICY: ModelRouteHealthPolicyV1 = {
+  failureThreshold: 3,
+  cooldownMs: 60_000,
+  halfOpenMaxAttempts: 1
+}
+
+export function normalizeModelRoutePools(
+  input: readonly Partial<ModelRoutePoolV1>[] | undefined,
+  providers: readonly ModelProviderProfileV1[]
+): ModelRoutePoolV1[] {
+  const providerById = new Map(providers.map((provider) => [provider.id.toLowerCase(), provider]))
+  const concreteModels = new Set(providers.flatMap((provider) => provider.models.map((model) => model.toLowerCase())))
+  const usedIds = new Set<string>()
+  const usedModels = new Set<string>()
+  const out: ModelRoutePoolV1[] = []
+  for (const raw of Array.isArray(input) ? input.slice(0, 100) : []) {
+    const id = normalizeModelProviderId(raw.id)
+    const modelId = typeof raw.modelId === 'string' ? raw.modelId.trim().slice(0, 512) : ''
+    if (!id || !modelId || usedIds.has(id) || usedModels.has(modelId.toLowerCase())) continue
+    const targetIds = new Set<string>()
+    const targets = (Array.isArray(raw.targets) ? raw.targets : []).slice(0, 50).flatMap((target: ModelRoutePoolV1['targets'][number], index: number) => {
+      const providerId = normalizeModelProviderId(target?.providerId)
+      const provider = providerById.get(providerId)
+      const targetModel = typeof target?.modelId === 'string' ? target.modelId.trim().slice(0, 512) : ''
+      if (!provider || !targetModel || !provider.models.some((model) => model.toLowerCase() === targetModel.toLowerCase())) return []
+      const targetId = normalizeModelProviderId(target?.id) || `${id}-target-${index + 1}`
+      if (targetIds.has(targetId)) return []
+      targetIds.add(targetId)
+      return [{
+        id: targetId,
+        providerId: provider.id,
+        modelId: provider.models.find((model) => model.toLowerCase() === targetModel.toLowerCase()) ?? targetModel,
+        enabled: target?.enabled !== false,
+        weight: Math.min(100, Math.max(1, boundedNonNegativeInteger(target?.weight, 1, 100)))
+      }]
+    })
+    const strategy: ModelRouteStrategy = MODEL_ROUTE_STRATEGIES.includes(raw.strategy as ModelRouteStrategy)
+      ? raw.strategy as ModelRouteStrategy
+      : 'priority'
+    const failureCodes = normalizeRetryHttpStatusCodes(
+      raw.failurePolicy?.failoverHttpStatusCodes,
+      DEFAULT_MODEL_ROUTE_FAILURE_POLICY.failoverHttpStatusCodes
+    )
+    const pool: ModelRoutePoolV1 = {
+      id,
+      name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 80) : modelId,
+      modelId,
+      enabled: raw.enabled !== false && !concreteModels.has(modelId.toLowerCase()) && targets.length > 0,
+      strategy,
+      targets,
+      failurePolicy: {
+        failoverHttpStatusCodes: failureCodes,
+        failoverOnNetworkError: raw.failurePolicy?.failoverOnNetworkError !== false,
+        failoverOnTimeout: raw.failurePolicy?.failoverOnTimeout !== false,
+        failoverOnAuthError: raw.failurePolicy?.failoverOnAuthError !== false
+      },
+      healthPolicy: {
+        failureThreshold: Math.min(20, Math.max(1, boundedNonNegativeInteger(raw.healthPolicy?.failureThreshold, 3, 20))),
+        cooldownMs: Math.min(3_600_000, Math.max(1_000, boundedNonNegativeInteger(raw.healthPolicy?.cooldownMs, 60_000, 3_600_000))),
+        halfOpenMaxAttempts: Math.min(10, Math.max(1, boundedNonNegativeInteger(raw.healthPolicy?.halfOpenMaxAttempts, 1, 10)))
+      }
+    }
+    usedIds.add(id)
+    usedModels.add(modelId.toLowerCase())
+    out.push(pool)
+  }
+  return out
 }
 
 export function getModelProviderSettings(settings: AppSettingsV1): ModelProviderSettingsV1 {
@@ -197,13 +287,17 @@ export function getModelProviderProfile(
 export function listModelProviderModelIds(settings: AppSettingsV1): string[] {
   const nonTextModelIds = listNonTextModelIds(settings)
   const ids = new Set<string>()
-  for (const provider of getModelProviderSettings(settings).providers) {
+  const providerSettings = getModelProviderSettings(settings)
+  for (const provider of providerSettings.providers) {
     for (const model of provider.models) {
       const trimmed = model.trim()
       if (!trimmed || !isComposerChatModelId(trimmed, nonTextModelIds)) continue
       if (!modelProfileSupportsTextChat(modelProviderModelProfile(provider, trimmed))) continue
       ids.add(trimmed)
     }
+  }
+  for (const pool of providerSettings.routePools) {
+    if (pool.enabled && pool.targets.some((target) => target.enabled)) ids.add(pool.modelId)
   }
   return [...ids].sort((a, b) => a.localeCompare(b))
 }

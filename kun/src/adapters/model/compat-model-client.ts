@@ -272,7 +272,7 @@ export class CompatModelClient implements ModelClient {
       result = await post(body, 'transport_retry')
     }
     if (result.kind === 'error') {
-      yield { kind: 'error', message: result.message }
+      yield { kind: 'error', message: result.message, failure: result.failure }
       return
     }
     let response = result.response
@@ -291,7 +291,7 @@ export class CompatModelClient implements ModelClient {
         const retryBody = this.buildRequestBody(request, stream, { endpointFormat, includeStreamUsage: false })
         const retry = await post(retryBody, 'stream_options_fallback')
         if (retry.kind === 'error') {
-          yield { kind: 'error', message: retry.message }
+          yield { kind: 'error', message: retry.message, failure: retry.failure }
           return
         }
         response = retry.response
@@ -343,11 +343,12 @@ export class CompatModelClient implements ModelClient {
           configuredEndpointFormat,
           model: requestModel
         })
-        const retryClassified = await this.classifyHttpError(response.status, retryText)
+        const retryClassified = await this.classifyHttpError(response.status, retryText, response.headers.get('retry-after'))
         yield {
           kind: 'error',
           message: retryClassified.message,
-          code: retryClassified.code
+          code: retryClassified.code,
+          failure: retryClassified.failure
         }
         return
       }
@@ -359,11 +360,12 @@ export class CompatModelClient implements ModelClient {
         configuredEndpointFormat,
         model: requestModel
       })
-      const classified = await this.classifyHttpError(response.status, text)
+      const classified = await this.classifyHttpError(response.status, text, response.headers.get('retry-after'))
       yield {
         kind: 'error',
         message: classified.message,
-        code: classified.code
+        code: classified.code,
+        failure: classified.failure
       }
       return
     }
@@ -450,7 +452,7 @@ export class CompatModelClient implements ModelClient {
       attempt: number
       reason: 'initial' | 'transport_retry' | 'stream_options_fallback'
     }
-  ): Promise<{ kind: 'response'; response: Response } | { kind: 'error'; message: string }> {
+  ): Promise<{ kind: 'response'; response: Response } | { kind: 'error'; message: string; failure: import('../../contracts/model-route-pool.js').ModelFailureMetadata }> {
     const bodyText = JSON.stringify(body)
     const traceRound = trace.round
     const traceSink = this.config.debugSink
@@ -491,7 +493,12 @@ export class CompatModelClient implements ModelClient {
       const proxyHint = !aborted && this.config.modelProxyUrl?.trim()
         ? '. Check the configured model-request proxy in Settings > Providers.'
         : ''
-      return { kind: 'error', message: `model request failed: ${message}${proxyHint}` }
+      const timeout = /timeout|timed out/i.test(message)
+      return {
+        kind: 'error',
+        message: `model request failed: ${message}${proxyHint}`,
+        failure: { category: timeout ? 'timeout' : 'network', failoverAllowed: !aborted }
+      }
     }
   }
 
@@ -509,12 +516,13 @@ export class CompatModelClient implements ModelClient {
     })
   }
 
-  private async classifyHttpError(status: number, text: string): Promise<{ message: string; code: string }> {
+  private async classifyHttpError(status: number, text: string, retryAfter?: string | null) {
     return classifyCompatHttpError({
       status,
       text,
       baseUrl: this.config.baseUrl,
-      fetchImpl: this.fetchImpl
+      fetchImpl: this.fetchImpl,
+      retryAfter
     })
   }
 

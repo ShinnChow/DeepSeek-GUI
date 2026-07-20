@@ -39,6 +39,8 @@ import type { ReviewTarget } from '../../contracts/review.js'
 import type { DelegationRuntime } from '../../delegation/delegation-runtime.js'
 import type { BackgroundShellRuntime } from '../../services/background-shell-runtime.js'
 import type { ModelClient } from '../../ports/model-client.js'
+import type { ModelRoutePoolConfig } from '../../contracts/model-route-pool.js'
+import type { RoutePoolHealthStore } from '../../adapters/model/route-pool-model-client.js'
 import type { RolesConfig } from '../../config/kun-config.js'
 import type { ImmutablePrefix } from '../../cache/immutable-prefix.js'
 import type { PublisherTrustStore } from '../../supplychain/publisher-trust-store.js'
@@ -166,6 +168,11 @@ export type ServerRuntime = {
    * scaffolds can omit it.
    */
   modelClient?: ModelClient
+  modelGateway?: {
+    enabled(): boolean
+    pools(): ModelRoutePoolConfig[]
+    health: RoutePoolHealthStore
+  }
   defaultModel?: string
   /**
    * Internal-LLM role model routing. Used by on-demand routes (e.g. session

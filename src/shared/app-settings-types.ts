@@ -255,11 +255,52 @@ export type ModelProviderProfileV1 = {
   music?: ModelProviderMusicCapabilityV1
   video?: ModelProviderVideoCapabilityV1
 }
+export const MODEL_ROUTE_STRATEGIES = [
+  'priority',
+  'round-robin',
+  'weighted-round-robin',
+  'least-latency',
+  'adaptive'
+] as const
+export type ModelRouteStrategy = (typeof MODEL_ROUTE_STRATEGIES)[number]
+export type ModelRouteTargetV1 = {
+  id: string
+  providerId: string
+  modelId: string
+  enabled: boolean
+  weight: number
+}
+export type ModelRouteFailurePolicyV1 = {
+  failoverHttpStatusCodes: number[]
+  failoverOnNetworkError: boolean
+  failoverOnTimeout: boolean
+  failoverOnAuthError: boolean
+}
+export type ModelRouteHealthPolicyV1 = {
+  failureThreshold: number
+  cooldownMs: number
+  halfOpenMaxAttempts: number
+}
+export type ModelRoutePoolV1 = {
+  id: string
+  name: string
+  modelId: string
+  enabled: boolean
+  strategy: ModelRouteStrategy
+  targets: ModelRouteTargetV1[]
+  failurePolicy: ModelRouteFailurePolicyV1
+  healthPolicy: ModelRouteHealthPolicyV1
+}
+export type LocalModelGatewaySettingsV1 = {
+  enabled: boolean
+}
 export type ModelProviderSettingsV1 = {
   apiKey: string
   baseUrl: string
   proxy: NetworkProxySettingsV1
   providers: ModelProviderProfileV1[]
+  routePools: ModelRoutePoolV1[]
+  localGateway: LocalModelGatewaySettingsV1
 }
 
 export type ModelProviderImageCapabilityPatchV1 = Partial<ModelProviderImageCapabilityV1>
@@ -278,10 +319,12 @@ export type ModelProviderProfilePatchV1 = Partial<Omit<ModelProviderProfileV1, '
   video?: ModelProviderVideoCapabilityPatchV1 | null
 }
 export type ModelProviderSettingsPatchV1 = Partial<
-  Omit<ModelProviderSettingsV1, 'providers' | 'proxy'>
+  Omit<ModelProviderSettingsV1, 'providers' | 'proxy' | 'routePools' | 'localGateway'>
 > & {
   proxy?: Partial<NetworkProxySettingsV1>
   providers?: ModelProviderProfilePatchV1[]
+  routePools?: Partial<ModelRoutePoolV1>[]
+  localGateway?: Partial<LocalModelGatewaySettingsV1>
 }
 
 export type KunSubagentProfileV1 = {

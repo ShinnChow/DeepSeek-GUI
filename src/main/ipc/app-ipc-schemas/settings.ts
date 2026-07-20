@@ -167,7 +167,33 @@ const modelProviderPatchSchema = z.object({
       baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
       models: z.array(modelIdSchema).max(500).optional()
     }).strict().nullable().optional()
-  }).strict()).max(50).optional()
+  }).strict()).max(50).optional(),
+  routePools: z.array(z.object({
+    id: z.string().trim().min(1).max(64).optional(),
+    name: z.string().trim().min(1).max(80).optional(),
+    modelId: modelIdSchema.optional(),
+    enabled: z.boolean().optional(),
+    strategy: z.enum(['priority', 'round-robin', 'weighted-round-robin', 'least-latency', 'adaptive']).optional(),
+    targets: z.array(z.object({
+      id: z.string().trim().min(1).max(64),
+      providerId: z.string().trim().min(1).max(64),
+      modelId: modelIdSchema,
+      enabled: z.boolean(),
+      weight: z.number().int().min(1).max(100)
+    }).strict()).max(50).optional(),
+    failurePolicy: z.object({
+      failoverHttpStatusCodes: z.array(z.number().int().min(400).max(599)).max(64),
+      failoverOnNetworkError: z.boolean(),
+      failoverOnTimeout: z.boolean(),
+      failoverOnAuthError: z.boolean()
+    }).strict().optional(),
+    healthPolicy: z.object({
+      failureThreshold: z.number().int().min(1).max(20),
+      cooldownMs: z.number().int().min(1000).max(3_600_000),
+      halfOpenMaxAttempts: z.number().int().min(1).max(10)
+    }).strict().optional()
+  }).strict()).max(100).optional(),
+  localGateway: z.object({ enabled: z.boolean().optional() }).strict().optional()
 }).strict()
 
 // Subagent profile patch. `.passthrough()` so a field the GUI adds later is

@@ -76,6 +76,13 @@ import {
   verifyMigrationImport,
   streamMigrationExport
 } from './migrations.js'
+import {
+  gatewayChatCompletions,
+  gatewayModels,
+  gatewayResponses,
+  routePoolStatus,
+  testRoutePool
+} from './openai-model-gateway.js'
 
 /**
  * Build the full router used by the HTTP server. The router exposes:
@@ -117,6 +124,17 @@ export function buildRouter(runtime: ServerRuntime): Router {
   const router = new Router()
   const approvalConsent = new ApprovalConsentVerifier(runtime.runtimeToken)
   router.add('GET', '/health', () => healthJsonResponse())
+  router.add('GET', '/v1/models', () => gatewayModels(runtime))
+  router.add('POST', '/v1/chat/completions', (request) => gatewayChatCompletions(runtime, request))
+  router.add('POST', '/v1/responses', (request) => gatewayResponses(runtime, request))
+  router.add('GET', '/v1/model-routes', (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return routePoolStatus(runtime)
+  })
+  router.add('POST', '/v1/model-routes/:id/test', (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return testRoutePool(runtime, ctx.params.id, request.signal)
+  })
   if (runtime.extensionPlatform) {
     // Static public extension paths must precede `/v1/extensions/:id` because
     // the minimal Router uses first-match ordering.

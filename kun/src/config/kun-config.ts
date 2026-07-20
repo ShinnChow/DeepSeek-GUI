@@ -26,6 +26,7 @@ import {
   DEFAULT_TOOL_OUTPUT_MAX_LINES
 } from '../contracts/tool-output-limits.js'
 import { HooksConfigSchema } from '../hooks/hook-config.js'
+import { LocalModelGatewayConfigSchema, ModelRoutePoolConfigSchema } from '../contracts/model-route-pool.js'
 
 export const KUN_CONFIG_FILENAME = 'config.json'
 export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
@@ -352,7 +353,9 @@ export const KunServeConfigSchema = z
      * hold the same HTTP credentials shape as the runtime defaults. When
      * empty/absent, the runtime stays single-provider.
      */
-    providers: z.record(z.string().min(1), ServeProviderConfigSchema).optional()
+    providers: z.record(z.string().min(1), ServeProviderConfigSchema).optional(),
+    routePools: z.array(ModelRoutePoolConfigSchema).max(100).optional(),
+    localModelGateway: LocalModelGatewayConfigSchema.optional()
   })
   .strict()
 

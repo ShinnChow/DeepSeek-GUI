@@ -80,6 +80,7 @@ import {
 } from './settings-controls'
 import { classifyProviderModelIds, providerModelListEntries } from './provider-model-editor'
 import { ProviderModelsManager } from './settings-section-provider-models'
+import { ModelRoutesSettings } from './settings-section-model-routes'
 import { ClaudeSubscriptionSection } from './claude-subscription-section'
 import {
   ProviderModelImportDialog,
@@ -156,7 +157,9 @@ export function modelProvidersSettingsPatch(input: {
       apiKey: defaultProvider?.apiKey ?? input.provider.apiKey,
       baseUrl: defaultProvider?.baseUrl ?? input.provider.baseUrl,
       proxy: input.provider.proxy,
-      providers: input.providers
+      providers: input.providers,
+      routePools: input.provider.routePools,
+      localGateway: input.provider.localGateway
     },
     ...(Object.keys(kunPatch).length > 0 ? { agents: { kun: kunPatch } } : {})
   }
@@ -944,6 +947,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
   const [addProviderQuery, setAddProviderQuery] = useState('')
   const [providerListQuery, setProviderListQuery] = useState('')
   const [activeTab, setActiveTab] = useState<ProviderTaskTab>('connection')
+  const [workspaceMode, setWorkspaceMode] = useState<'providers' | 'routes'>('providers')
   const [expandedCapabilities, setExpandedCapabilities] = useState<Set<ProviderCapability>>(new Set())
   const addProviderButtonRef = useRef<HTMLButtonElement>(null)
   const addProviderDialogRef = useRef<HTMLElement>(null)
@@ -1824,7 +1828,12 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
             <h2 className="text-[16px] font-semibold text-ds-ink">{t('providers')}</h2>
             <p className="mt-1 max-w-3xl text-[13px] leading-5 text-ds-muted">{t('providersDesc')}</p>
           </div>
-          <button
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl border border-ds-border bg-ds-main p-1 text-[12px]">
+              <button type="button" onClick={() => setWorkspaceMode('providers')} className={`rounded-lg px-3 py-1.5 ${workspaceMode === 'providers' ? 'bg-ds-card font-semibold text-ds-ink shadow-sm' : 'text-ds-muted'}`}>模型供应商</button>
+              <button type="button" onClick={() => setWorkspaceMode('routes')} className={`rounded-lg px-3 py-1.5 ${workspaceMode === 'routes' ? 'bg-ds-card font-semibold text-accent shadow-sm' : 'text-ds-muted'}`}>高级本地中转站</button>
+            </div>
+          {workspaceMode === 'providers' ? <button
             ref={addProviderButtonRef}
             type="button"
             aria-haspopup="dialog"
@@ -1834,9 +1843,15 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2} />
             {t('modelProviderAdd')}
-          </button>
+          </button> : null}
+          </div>
         </header>
-        <div className="grid gap-4 p-4">
+        {workspaceMode === 'routes' ? (
+          <ModelRoutesSettings
+            settings={provider}
+            onChange={(next) => update({ provider: { routePools: next.routePools, localGateway: next.localGateway } })}
+          />
+        ) : <div className="grid gap-4 p-4">
           <label className="grid gap-1.5 lg:hidden">
             <span className="text-[12px] font-semibold text-ds-muted">{t('modelProviderCompactSelect')}</span>
             <select
@@ -2681,7 +2696,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
               </div>
             ) : null}
           </div>
-        </div>
+        </div>}
       </section>
       <details className="group rounded-2xl border border-ds-border bg-ds-card/95 shadow-sm">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
