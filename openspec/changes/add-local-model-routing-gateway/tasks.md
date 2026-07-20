@@ -33,3 +33,4 @@
 - [x] 5.3 Add gateway route tests for model listing, both protocols, streaming, tools, images, cancellation, errors, and loopback enforcement.
 - [x] 5.4 Add renderer interaction coverage for pool CRUD, reorder, validation, runtime status, and testing flows.
 - [x] 5.5 Run typecheck, targeted tests, `build:kun`, top-level build, lint/diff checks, then create the requested local Angular-style commit.
+- [x] 5.6 Correct the relay information architecture so one named local relay provider manages multiple independently routed models and appears as one provider group in model selectors.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactElement } from 'react'
 import type { ModelProviderSettingsV1, ModelRoutePoolV1, ModelRouteStrategy } from '@shared/app-settings'
 import { DEFAULT_MODEL_ROUTE_FAILURE_POLICY, DEFAULT_MODEL_ROUTE_HEALTH_POLICY } from '@shared/app-settings'
-import { Activity, AlertTriangle, GripVertical, Loader2, Plus, Play, Route, Trash2 } from 'lucide-react'
+import { Activity, AlertTriangle, Boxes, GripVertical, Loader2, Plus, Play, Route, Server, Trash2 } from 'lucide-react'
 import { Toggle } from './settings-controls'
 
 type RouteStatus = {
@@ -59,7 +59,7 @@ export function ModelRoutesSettings({
     ]))
     const pool: ModelRoutePoolV1 = {
       id,
-      name: `新建容量池 ${ordinal}`,
+      name: `路由模型 ${ordinal}`,
       modelId,
       enabled: false,
       strategy: 'priority',
@@ -98,33 +98,68 @@ export function ModelRoutesSettings({
 
   return (
     <div className="grid min-h-[620px] gap-4 p-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <aside className="grid min-w-0 content-start gap-3 border-r border-ds-border-muted pr-4">
-        <div>
-          <h3 className="text-[14px] font-semibold text-ds-ink">本地中转站</h3>
-          <p className="mt-1 text-[12px] leading-5 text-ds-faint">把多个供应商模型合并为一个稳定入口。</p>
+      <section className="flex flex-wrap items-center gap-4 rounded-2xl border border-ds-border bg-ds-main/35 p-4 lg:col-span-2">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-accent/10 text-accent">
+          <Server className="h-5 w-5" />
+        </span>
+        <div className="min-w-[220px] flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium text-ds-faint">本地中转供应商</span>
+            <span className="rounded-full bg-ds-card px-2 py-0.5 text-[10.5px] text-ds-muted">
+              {settings.routePools.filter((pool) => pool.enabled).length} / {settings.routePools.length} 个模型已启用
+            </span>
+          </div>
+          <input
+            value={settings.localGateway.name}
+            onChange={(event) => onChange({
+              ...settings,
+              localGateway: { ...settings.localGateway, name: event.target.value }
+            })}
+            aria-label="中转供应商名称"
+            className="mt-1 w-full max-w-md bg-transparent text-[17px] font-semibold text-ds-ink outline-none"
+          />
+          <p className="mt-1 text-[11.5px] text-ds-faint">一个供应商统一承载多个公开模型，每个模型可配置独立的路由目标和负载策略。</p>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-ds-border bg-ds-card px-3 py-2.5">
+          <div>
+            <div className="text-[12px] font-medium text-ds-ink">开放本地 API</div>
+            <div className="mt-0.5 text-[10.5px] text-ds-faint">127.0.0.1 · 无鉴权</div>
+          </div>
+          <Toggle
+            checked={settings.localGateway.enabled}
+            onChange={(enabled) => onChange({
+              ...settings,
+              localGateway: { ...settings.localGateway, enabled }
+            })}
+            ariaLabel="开放本地 API"
+          />
+        </div>
+      </section>
+      <aside className="grid min-w-0 content-start gap-3 border-b border-ds-border-muted pb-4 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-ds-ink"><Boxes className="h-4 w-4 text-accent" />路由模型</h3>
+            <p className="mt-1 text-[12px] leading-5 text-ds-faint">选择一个模型配置它的容量池。</p>
+          </div>
         </div>
         <button type="button" onClick={addPool} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-accent text-[12.5px] font-semibold text-white">
-          <Plus className="h-4 w-4" /> 新建路由
+          <Plus className="h-4 w-4" /> 添加模型
         </button>
-        <div className="flex items-center justify-between rounded-xl border border-ds-border bg-ds-card px-3 py-2.5">
-          <div><div className="text-[12px] font-medium text-ds-ink">开放本地 API</div><div className="mt-0.5 text-[10.5px] text-ds-faint">127.0.0.1 · 无鉴权</div></div>
-          <Toggle checked={settings.localGateway.enabled} onChange={(enabled) => onChange({ ...settings, localGateway: { enabled } })} ariaLabel="开放本地 API" />
-        </div>
         <div className="grid gap-2">
           {settings.routePools.map((pool) => {
             const available = pool.targets.filter((target) => target.enabled).length
             return (
               <button key={pool.id} type="button" onClick={() => setSelectedId(pool.id)} className={`rounded-xl border px-3 py-3 text-left transition ${selected?.id === pool.id ? 'border-accent bg-accent/5' : 'border-ds-border bg-ds-card hover:bg-ds-hover'}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[13.5px] font-semibold text-ds-ink">{pool.name}</span>
+                  <span className="truncate font-mono text-[13px] font-semibold text-ds-ink">{pool.modelId}</span>
                   <span className={`h-2 w-2 rounded-full ${pool.enabled ? 'bg-emerald-500' : 'bg-ds-faint'}`} />
                 </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-ds-faint">{pool.modelId}</div>
+                <div className="mt-1 truncate text-[11px] text-ds-faint">{pool.name}</div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-ds-muted"><span>{available}/{pool.targets.length} 目标</span><span>{strategies.find((item) => item.id === pool.strategy)?.label}</span></div>
               </button>
             )
           })}
-          {settings.routePools.length === 0 ? <div className="rounded-xl border border-dashed border-ds-border px-3 py-8 text-center text-[12px] text-ds-faint">还没有路由池</div> : null}
+          {settings.routePools.length === 0 ? <div className="rounded-xl border border-dashed border-ds-border px-3 py-8 text-center text-[12px] text-ds-faint">还没有路由模型</div> : null}
         </div>
       </aside>
 
@@ -132,14 +167,15 @@ export function ModelRoutesSettings({
         <main className="grid min-w-0 content-start gap-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <input value={selected.name} onChange={(event) => updatePool({ name: event.target.value })} className="w-full bg-transparent text-[20px] font-semibold text-ds-ink outline-none" />
+              <p className="mb-1 text-[11px] font-medium text-accent">{settings.localGateway.name} / 路由模型</p>
+              <input aria-label="路由模型名称" value={selected.name} onChange={(event) => updatePool({ name: event.target.value })} className="w-full bg-transparent text-[20px] font-semibold text-ds-ink outline-none" />
               <p className="mt-1 text-[12px] text-ds-faint">配置保存后会热更新到当前 Kun Runtime。</p>
             </div>
             <div className="flex items-center gap-3"><span className="text-[12px] text-ds-muted">启用</span><Toggle checked={selected.enabled} onChange={(enabled) => updatePool({ enabled })} ariaLabel="启用路由池" /></div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="模型代号"><input value={selected.modelId} onChange={(event) => updatePool({ modelId: event.target.value })} className={inputClass} spellCheck={false} /></Field>
+            <Field label="公开模型 ID"><input value={selected.modelId} onChange={(event) => updatePool({ modelId: event.target.value })} className={inputClass} spellCheck={false} /></Field>
             <Field label="负载策略"><select value={selected.strategy} onChange={(event) => updatePool({ strategy: event.target.value as ModelRouteStrategy })} className={inputClass}>{strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.label}</option>)}</select></Field>
           </div>
 
@@ -178,9 +214,9 @@ export function ModelRoutesSettings({
 
           <section className="grid gap-3 border-t border-ds-border-muted pt-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-[13px] font-semibold text-ds-ink">路由验证</h3><p className="mt-1 text-[11px] text-ds-faint">本地 API 默认无鉴权，仅允许回环地址访问。</p></div><button type="button" disabled={testing || !selected.enabled} onClick={() => void runTest()} className="inline-flex h-9 items-center gap-2 rounded-full border border-accent px-4 text-[12px] font-medium text-accent disabled:opacity-40">{testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{testing ? '测试中' : '测试完整链路'}</button></div>{testMessage ? <div className="rounded-lg bg-ds-main px-3 py-2 text-[12px] text-ds-muted">{testMessage}</div> : null}<div className="overflow-hidden rounded-xl border border-ds-border"><table className="w-full text-left text-[11.5px]"><thead className="bg-ds-main text-ds-faint"><tr><th className="px-3 py-2">时间</th><th className="px-3 py-2">目标</th><th className="px-3 py-2">结果</th><th className="px-3 py-2">延迟</th></tr></thead><tbody>{events.map((event) => <tr key={`${event.at}-${event.providerId}-${event.modelId}`} className="border-t border-ds-border-muted text-ds-muted"><td className="px-3 py-2">{new Date(event.at).toLocaleTimeString()}</td><td className="px-3 py-2">{event.providerId} / {event.modelId}</td><td className="px-3 py-2">{event.result}{event.category ? ` · ${event.category}` : ''}</td><td className="px-3 py-2">{event.latencyMs} ms</td></tr>)}</tbody></table>{events.length === 0 ? <div className="px-3 py-6 text-center text-[11px] text-ds-faint">暂无路由事件</div> : null}</div></section>
 
-          <div className="flex justify-end"><button type="button" onClick={removePool} className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-2 text-[12px] text-red-600"><Trash2 className="h-3.5 w-3.5" /> 删除路由池</button></div>
+          <div className="flex justify-end"><button type="button" onClick={removePool} className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-2 text-[12px] text-red-600"><Trash2 className="h-3.5 w-3.5" /> 删除模型</button></div>
         </main>
-      ) : <main className="grid place-items-center text-center"><div><Route className="mx-auto h-10 w-10 text-ds-faint" /><h3 className="mt-3 text-[14px] font-semibold text-ds-ink">创建第一个本地路由池</h3><p className="mt-1 text-[12px] text-ds-faint">组合多个供应商模型，提高可用容量。</p></div></main>}
+      ) : <main className="grid place-items-center text-center"><div><Route className="mx-auto h-10 w-10 text-ds-faint" /><h3 className="mt-3 text-[14px] font-semibold text-ds-ink">添加第一个路由模型</h3><p className="mt-1 text-[12px] text-ds-faint">一个本地中转供应商可以包含多个公开模型。</p><button type="button" onClick={addPool} className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-4 text-[12px] font-semibold text-white"><Plus className="h-3.5 w-3.5" />添加模型</button></div></main>}
     </div>
   )
 }

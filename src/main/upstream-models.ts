@@ -108,6 +108,8 @@ async function readConfiguredModelGroups(settings: AppSettingsV1): Promise<Model
     })
   }
   const providerSettings = getModelProviderSettings(settings)
+  const routeModelIds: string[] = []
+  const routeModelProfiles: Record<string, ModelProviderModelProfileV1> = {}
   for (const pool of providerSettings.routePools) {
     if (!pool.enabled || pool.targets.length === 0) continue
     const profiles = pool.targets.flatMap((target) => {
@@ -123,20 +125,22 @@ async function readConfiguredModelGroups(settings: AppSettingsV1): Promise<Model
     const inputModalities = [...new Set(profiles.flatMap((profile) => profile.inputModalities))]
     const outputModalities = [...new Set(profiles.flatMap((profile) => profile.outputModalities))]
     const messageParts = [...new Set(profiles.flatMap((profile) => profile.messageParts))]
+    routeModelIds.push(pool.modelId)
+    routeModelProfiles[pool.modelId] = {
+      inputModalities,
+      outputModalities,
+      messageParts,
+      supportsToolCalling: profiles.some((profile) => profile.supportsToolCalling),
+      contextWindowTokens: Math.max(...profiles.map((profile) => profile.contextWindowTokens ?? 0)) || undefined,
+      maxOutputTokens: Math.max(...profiles.map((profile) => profile.maxOutputTokens ?? 0)) || undefined
+    }
+  }
+  if (routeModelIds.length > 0) {
     groups.push({
-      providerId: `route-pool:${pool.id}`,
-      label: pool.name,
-      modelIds: [pool.modelId],
-      modelProfiles: {
-        [pool.modelId]: {
-          inputModalities,
-          outputModalities,
-          messageParts,
-          supportsToolCalling: profiles.some((profile) => profile.supportsToolCalling),
-          contextWindowTokens: Math.max(...profiles.map((profile) => profile.contextWindowTokens ?? 0)) || undefined,
-          maxOutputTokens: Math.max(...profiles.map((profile) => profile.maxOutputTokens ?? 0)) || undefined
-        }
-      }
+      providerId: 'route-gateway:local',
+      label: providerSettings.localGateway.name,
+      modelIds: routeModelIds,
+      modelProfiles: routeModelProfiles
     })
   }
   return mergeModelGroups(groups)

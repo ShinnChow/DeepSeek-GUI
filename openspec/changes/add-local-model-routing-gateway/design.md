@@ -24,7 +24,7 @@ The change must preserve the single-runtime architecture, existing provider sett
 
 ### Route pools are separate settings entities
 
-`ModelProviderSettingsV1` gains `routePools`. Each pool has a stable id, public model id, strategy, targets, failover policy, and health policy. Targets reference concrete provider ids and concrete model ids only. Normalization drops duplicate target ids, disables dangling references, clamps weights/thresholds, and rejects public model ids that collide with concrete models or another enabled pool.
+`ModelProviderSettingsV1` gains `routePools`. Each pool represents one public model beneath the single local relay provider and has a stable id, public model id, strategy, targets, failover policy, and health policy. The local gateway settings retain the relay provider's display name and API enablement. Targets reference concrete provider ids and concrete model ids only. Normalization drops duplicate target ids, disables dangling references, clamps weights/thresholds, and rejects public model ids that collide with concrete models or another enabled pool.
 
 Keeping pools separate from `ModelProviderProfileV1` avoids recursive provider resolution and prevents virtual credentials from being mistaken for upstream secrets. Existing settings without pools normalize to an empty list.
 
@@ -52,9 +52,9 @@ Request codecs validate bounded JSON, map messages, tools, image parts, cancella
 
 ### Renderer edits normalized shared settings
 
-Settings > Providers gains a top workspace switch. The relay workspace uses a pool list and detail editor, derives target choices from concrete provider models, supports native drag reorder, and exposes strategy/failure/health controls. Runtime health and route tests are fetched through constrained preload/main IPC backed by Kun control routes; secrets never return to the renderer.
+Settings > Providers gains a top workspace switch. The relay workspace first presents one named local relay provider, then a routed-model list and per-model detail editor. Each routed model derives target choices from concrete provider models, supports native drag reorder, and exposes strategy/failure/health controls. Runtime health and route tests are fetched through constrained preload/main IPC backed by Kun control routes; secrets never return to the renderer.
 
-Enabled pools are appended as virtual model groups for composer, workflow, schedule, and IM selection. Capability metadata is aggregated for display, while runtime eligibility remains request-specific.
+Enabled pools are appended as models within one virtual local relay provider group for composer, workflow, schedule, and IM selection. Each public model retains its own aggregated capability metadata, while runtime eligibility remains request-specific.
 
 ## Risks / Trade-offs
 

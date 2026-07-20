@@ -60,6 +60,8 @@ describe('Kun runtime config service', () => {
     expect(body.serve).not.toHaveProperty('runtimeToken')
     expect(body.serve).not.toHaveProperty('insecure')
     expect(body.serve).not.toHaveProperty('storage')
+    expect(body.serve?.localModelGateway).toEqual({ enabled: false })
+    expect(body.serve?.localModelGateway).not.toHaveProperty('name')
     expect(RuntimeConfigApplyRequest.safeParse(body).success).toBe(true)
 
     const received: RuntimeConfigApplyPayload[] = []

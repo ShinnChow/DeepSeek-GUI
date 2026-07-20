@@ -22,12 +22,20 @@ function runtime(enabled = true): ServerRuntime {
     modelClient,
     modelGateway: {
       enabled: () => enabled,
-      pools: () => [{
-        id: 'pool', name: 'Pool', modelId: 'local-model', enabled: true, strategy: 'priority',
-        targets: [{ id: 'target', providerId: 'provider', modelId: 'real', enabled: true, weight: 1 }],
-        failurePolicy: { failoverHttpStatusCodes: [429, 503], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
-        healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
-      }],
+      pools: () => [
+        {
+          id: 'pool', name: 'Pool', modelId: 'local-model', enabled: true, strategy: 'priority',
+          targets: [{ id: 'target', providerId: 'provider', modelId: 'real', enabled: true, weight: 1 }],
+          failurePolicy: { failoverHttpStatusCodes: [429, 503], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+          healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+        },
+        {
+          id: 'coding-pool', name: 'Coding Pool', modelId: 'local-coding', enabled: true, strategy: 'adaptive',
+          targets: [{ id: 'coding-target', providerId: 'provider', modelId: 'real-coding', enabled: true, weight: 1 }],
+          failurePolicy: { failoverHttpStatusCodes: [429, 503], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+          healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+        }
+      ],
       health: new RoutePoolHealthStore()
     }
   } as unknown as ServerRuntime
@@ -38,9 +46,12 @@ describe('local OpenAI model gateway', () => {
     expect(ServeOptionsSchema.safeParse({ ...DEFAULT_SERVE_OPTIONS, dataDir: '/tmp/kun', host: '0.0.0.0', localModelGateway: { enabled: true } }).success).toBe(false)
     expect(ServeOptionsSchema.safeParse({ ...DEFAULT_SERVE_OPTIONS, dataDir: '/tmp/kun', host: '127.0.0.1', localModelGateway: { enabled: true } }).success).toBe(true)
   })
-  it('lists only route pool aliases', () => {
+  it('lists every routed model exposed by the local provider', () => {
     const response = gatewayModels(runtime())
-    expect(JSON.parse(response.body).data).toEqual([expect.objectContaining({ id: 'local-model', owned_by: 'kun-route-pool' })])
+    expect(JSON.parse(response.body).data).toEqual([
+      expect.objectContaining({ id: 'local-model', owned_by: 'kun-route-pool' }),
+      expect.objectContaining({ id: 'local-coding', owned_by: 'kun-route-pool' })
+    ])
   })
 
   it('returns a non-streaming chat completion with the public alias', async () => {

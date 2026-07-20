@@ -146,6 +146,51 @@ describe('upstream model picker list', () => {
     }
   })
 
+  it('groups multiple route aliases under one local gateway provider', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    await mkdir(dataDir, { recursive: true })
+    const routed = settings(dataDir)
+    const deepseek = routed.provider.providers.find((provider) => provider.id === 'deepseek')!
+    routed.provider.localGateway = { enabled: true, name: 'Team Relay' }
+    routed.provider.routePools = [
+      {
+        id: 'general',
+        name: 'General',
+        modelId: 'team-general',
+        enabled: true,
+        strategy: 'priority',
+        targets: [{ id: 'general-primary', providerId: deepseek.id, modelId: deepseek.models[0], enabled: true, weight: 1 }],
+        failurePolicy: { failoverHttpStatusCodes: [429, 503], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+        healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+      },
+      {
+        id: 'coding',
+        name: 'Coding',
+        modelId: 'team-coding',
+        enabled: true,
+        strategy: 'adaptive',
+        targets: [{ id: 'coding-primary', providerId: 'custom-provider', modelId: 'custom-provider-model', enabled: true, weight: 1 }],
+        failurePolicy: { failoverHttpStatusCodes: [429, 503], failoverOnNetworkError: true, failoverOnTimeout: true, failoverOnAuthError: true },
+        healthPolicy: { failureThreshold: 3, cooldownMs: 60_000, halfOpenMaxAttempts: 1 }
+      }
+    ]
+
+    const result = await fetchUpstreamModelIds(routed, '')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const routeGroups = result.modelGroups?.filter((group) =>
+        group.providerId === 'route-gateway:local'
+      )
+      expect(routeGroups).toHaveLength(1)
+      expect(routeGroups?.[0]).toMatchObject({
+        label: 'Team Relay',
+        modelIds: ['team-coding', 'team-general']
+      })
+      expect(result.modelGroups?.some((group) => group.providerId.startsWith('route-pool:'))).toBe(false)
+    }
+  })
+
   it('never queries the upstream /v1/models catalog for the composer picker (issue #337)', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
     await mkdir(dataDir, { recursive: true })

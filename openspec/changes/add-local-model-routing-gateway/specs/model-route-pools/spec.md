@@ -67,7 +67,11 @@ Kun SHALL maintain bounded target success, failure, EWMA latency, circuit, and r
 - **THEN** success and latency history is restored while every circuit starts closed
 
 ### Requirement: Virtual models appear across model selectors and telemetry
-Enabled pools SHALL appear as virtual model groups in Kun model selection surfaces, while usage, route events, and diagnostics SHALL retain the public alias and actual provider/model target.
+Enabled pools SHALL appear as multiple virtual models under one named local relay provider group in Kun model selection surfaces, while usage, route events, and diagnostics SHALL retain the public alias and actual provider/model target.
+
+#### Scenario: One relay provider exposes multiple models
+- **WHEN** the user enables two or more route pools with distinct public model ids
+- **THEN** model selectors show one local relay provider containing every enabled public model id rather than one provider group per route pool
 
 #### Scenario: Workflow selects a pool
 - **WHEN** a workflow or scheduled task chooses a virtual model alias
@@ -78,7 +82,11 @@ Enabled pools SHALL appear as virtual model groups in Kun model selection surfac
 - **THEN** records identify both the requested alias and the concrete provider/model used
 
 ### Requirement: Route pools are manageable in provider settings
-Settings > Providers SHALL provide a dedicated Advanced Local Relay workspace for creating, editing, reordering, testing, enabling, and deleting route pools without exposing credentials.
+Settings > Providers SHALL provide a dedicated Advanced Local Relay workspace that represents one named local relay provider containing multiple routed models, with controls for creating, editing, reordering, testing, enabling, and deleting each model pool without exposing credentials.
+
+#### Scenario: User adds another public model
+- **WHEN** the user adds a routed model in an existing local relay provider
+- **THEN** the new public model appears alongside the provider's existing models and retains an independent strategy, target list, failure policy, health policy, and test history
 
 #### Scenario: User reorders priority targets
 - **WHEN** the user drags a target above another target and saves

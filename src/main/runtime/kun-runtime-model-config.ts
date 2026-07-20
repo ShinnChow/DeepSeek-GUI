@@ -84,7 +84,7 @@ export function routePoolsConfigForRuntime(settings: AppSettingsV1) {
 }
 
 export function localModelGatewayConfigForRuntime(settings: AppSettingsV1) {
-  return getModelProviderSettings(settings).localGateway
+  return { enabled: getModelProviderSettings(settings).localGateway.enabled }
 }
 
 export function tokenEconomyConfigForRuntime(

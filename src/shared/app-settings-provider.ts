@@ -106,7 +106,7 @@ export function defaultModelProviderSettings(): ModelProviderSettingsV1 {
     proxy: defaultNetworkProxySettings(),
     providers: [defaultProvider],
     routePools: [],
-    localGateway: { enabled: false }
+    localGateway: { enabled: false, name: 'Kun API' }
   }
 }
 
@@ -144,7 +144,12 @@ export function normalizeModelProviderSettings(
     proxy: normalizeNetworkProxySettings(input?.proxy),
     providers,
     routePools,
-    localGateway: { enabled: input?.localGateway?.enabled === true }
+    localGateway: {
+      enabled: input?.localGateway?.enabled === true,
+      name: typeof input?.localGateway?.name === 'string' && input.localGateway.name.trim()
+        ? input.localGateway.name.trim().slice(0, 80)
+        : defaults.localGateway.name
+    }
   }
 }
 

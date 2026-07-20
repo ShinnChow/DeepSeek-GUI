@@ -6,9 +6,9 @@ Users can configure several providers that expose the same or interchangeable mo
 
 - Add persistent virtual model route pools backed by ordered provider/model targets with priority, round-robin, weighted, least-latency, and stability-first adaptive strategies.
 - Add capability-aware target filtering, structured provider failure classification, pre-output failover, circuit breaking, bounded health metrics, and route event history.
-- Expose enabled route pools throughout Kun model selection while retaining the actual provider/model target in diagnostics and usage attribution.
+- Expose enabled route pools as multiple models under one named local relay provider throughout Kun model selection, while retaining the actual provider/model target in diagnostics and usage attribution.
 - Add loopback-only OpenAI-compatible `/v1/models`, `/v1/chat/completions`, and `/v1/responses` routes served by the existing Kun runtime.
-- Add an Advanced Local Relay workspace under Settings > Providers for creating, testing, reordering, and monitoring route pools.
+- Add an Advanced Local Relay workspace under Settings > Providers for naming one local relay provider and creating, testing, reordering, and monitoring multiple routed models beneath it.
 - Preserve direct provider selection and the single Kun runtime architecture.
 
 ## Capabilities

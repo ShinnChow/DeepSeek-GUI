@@ -43,6 +43,14 @@ describe('app-ipc-schemas', () => {
     })).toThrow()
   })
 
+  it('accepts a named local model gateway provider', () => {
+    expect(settingsPatchSchema.parse({
+      provider: {
+        localGateway: { enabled: true, name: ' Team Relay ' }
+      }
+    }).provider?.localGateway).toEqual({ enabled: true, name: 'Team Relay' })
+  })
+
   it('normalizes runtime request paths', () => {
     const payload = runtimeRequestPayloadSchema.parse({
       path: 'v1/threads?limit=1',

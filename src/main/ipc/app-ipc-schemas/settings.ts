@@ -193,7 +193,10 @@ const modelProviderPatchSchema = z.object({
       halfOpenMaxAttempts: z.number().int().min(1).max(10)
     }).strict().optional()
   }).strict()).max(100).optional(),
-  localGateway: z.object({ enabled: z.boolean().optional() }).strict().optional()
+  localGateway: z.object({
+    enabled: z.boolean().optional(),
+    name: z.string().trim().min(1).max(80).optional()
+  }).strict().optional()
 }).strict()
 
 // Subagent profile patch. `.passthrough()` so a field the GUI adds later is

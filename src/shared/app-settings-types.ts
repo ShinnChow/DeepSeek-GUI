@@ -293,6 +293,7 @@ export type ModelRoutePoolV1 = {
 }
 export type LocalModelGatewaySettingsV1 = {
   enabled: boolean
+  name: string
 }
 export type ModelProviderSettingsV1 = {
   apiKey: string
