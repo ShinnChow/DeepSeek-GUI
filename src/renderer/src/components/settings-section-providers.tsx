@@ -2742,9 +2742,9 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
           <section
             ref={addProviderDialogRef}
             onKeyDown={handleAddProviderDialogKeyDown}
-            className="grid max-h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl grid-rows-[auto_auto_1fr] overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-panel"
+            className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-panel"
           >
-            <header className="flex items-start justify-between gap-3 border-b border-ds-border px-5 py-4">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-ds-border px-5 py-4">
               <div>
                 <h2 id="add-provider-dialog-title" className="text-[15px] font-semibold text-ds-ink">
                   {t('modelProviderAddDialogTitle')}
@@ -2760,7 +2760,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
                 <X className="h-4 w-4" strokeWidth={1.9} />
               </button>
             </header>
-            <div className="border-b border-ds-border px-5 py-3">
+            <div className="shrink-0 border-b border-ds-border px-5 py-3">
               <label className="relative block">
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ds-faint"
@@ -2776,7 +2776,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
                 />
               </label>
             </div>
-            <div className="overscroll-contain overflow-y-auto px-5 py-4">
+            <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-5 py-4">
               <button
                 type="button"
                 onClick={() => {

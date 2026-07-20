@@ -676,9 +676,9 @@ export function ProviderModelsManager({
             aria-modal="true"
             aria-labelledby={dialogTitleId}
             onKeyDown={handleDialogKeyDown}
-            className="grid max-h-[calc(100vh-2rem)] w-full max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-panel"
+            className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-panel"
           >
-            <header className="flex items-start justify-between gap-3 border-b border-ds-border px-5 py-4">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-ds-border px-5 py-4">
               <h2 id={dialogTitleId} className="min-w-0 break-words text-[15px] font-semibold text-ds-ink">
                 {editor.mode === 'add'
                   ? t('providerModelAddTitle')
@@ -694,7 +694,7 @@ export function ProviderModelsManager({
               </button>
             </header>
 
-            <div className="grid gap-3 overscroll-contain overflow-y-auto px-5 py-4">
+            <div className="grid min-h-0 flex-1 gap-3 overscroll-contain overflow-y-auto px-5 py-4">
               {editor.mode === 'add' ? (
                 <div className="grid gap-2">
                   <span className="text-[12px] font-semibold text-ds-muted">{t('providerModelKindLabel')}</span>
@@ -956,7 +956,7 @@ export function ProviderModelsManager({
               ) : null}
             </div>
 
-            <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-ds-border px-5 py-3">
+            <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ds-border px-5 py-3">
               <button
                 type="button"
                 onClick={closeEditor}

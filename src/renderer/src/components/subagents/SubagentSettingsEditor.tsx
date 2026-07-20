@@ -1067,8 +1067,8 @@ function ProfileDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border border-ds-border bg-ds-main shadow-2xl">
-        <div className="flex items-center gap-2 border-b border-ds-border px-4 py-3">
+      <div className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-ds-border bg-ds-main shadow-2xl">
+        <div className="flex shrink-0 items-center gap-2 border-b border-ds-border px-4 py-3">
           <Bot className="h-4 w-4 text-ds-muted" />
           <span className="text-sm font-semibold text-ds-heading">
             {isNew ? t('subagentsPanel.newSubagent', 'New subagent') : t('agentsView.editAgent', 'Edit agent')}
@@ -1086,7 +1086,7 @@ function ProfileDialog({
             {t('agentsView.tabPermissions', 'Permissions')}
           </TabButton>
         </div>
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
           {tab === 'basic' ? (
             <>
           <Field label={t('agentsView.fName', 'Name')}>

@@ -129,6 +129,14 @@ describe('ProviderModelsManager', () => {
 
     const dialog = renderer.root.findByProps({ role: 'dialog' })
     expect(dialog.props['aria-modal']).toBe('true')
+    expect(dialog.props.className).toContain('flex-col')
+    expect(dialog.props.className).toContain('overflow-hidden')
+    const scrollRegion = dialog.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('overflow-y-auto')
+    )
+    expect(scrollRegion.props.className).toContain('min-h-0')
+    expect(scrollRegion.props.className).toContain('flex-1')
     const title = renderer.root.findByProps({ id: dialog.props['aria-labelledby'] })
     expect(title.children).toContain('Add model')
     const advanced = dialog.findByType('details')
