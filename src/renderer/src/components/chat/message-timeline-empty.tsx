@@ -1,9 +1,8 @@
-import { Fragment, useState, type ReactElement } from 'react'
+import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bot, CornerUpLeft, GitFork, RefreshCw, Settings } from 'lucide-react'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import { KunStateFigure } from './AnimatedWorkLogo'
-import { InitialSessionUsageHeatmap } from './InitialSessionUsageHeatmap'
 import { KunHeroStage } from './KunHeroStage'
 
 /**
@@ -119,6 +118,31 @@ function RuntimeWakeHero({
   )
 }
 
+function ChatEmptyHero({ hidden = false }: { hidden?: boolean }): ReactElement {
+  const { t } = useTranslation('common')
+
+  return (
+    <div
+      className="ds-chat-empty-hero ds-no-drag mx-auto flex min-h-[min(620px,calc(100dvh-220px))] w-full items-center justify-center px-6 py-10 text-center"
+      aria-hidden={hidden || undefined}
+    >
+      {!hidden ? (
+        <div className="flex max-w-[720px] -translate-y-6 flex-col items-center sm:-translate-y-8">
+          <h1
+            id="chat-empty-hero-title"
+            className="max-w-[620px] text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ds-ink sm:text-[32px]"
+          >
+            {t('emptyHeroTitle')}
+          </h1>
+          <p className="mt-3 max-w-[680px] text-[14.5px] leading-7 text-ds-muted">
+            {t('emptyHeroSub')}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function MessageTimelineEmptyHero({
   route,
   ready,
@@ -178,7 +202,7 @@ export function MessageTimelineEmptyHero({
     )
   }
 
-  return <InitialSessionUsageHeatmap hideHero={focusModeEnabled} />
+  return <ChatEmptyHero hidden={focusModeEnabled} />
 }
 
 export function ThreadForkBanner({ parentTitle }: { parentTitle: string }): ReactElement {

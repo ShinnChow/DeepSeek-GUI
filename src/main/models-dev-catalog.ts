@@ -44,6 +44,10 @@ type LoadedCatalog = {
   catalog: CatalogRoot
   stale: boolean
 }
+type CursorCatalogFamily = {
+  providerKey: string
+  pattern: RegExp
+}
 
 const PROFILE_MATCHES: Record<string, ModelsDevProviderMatch> = {
   deepseek: catalogMatch('deepseek'),
@@ -62,6 +66,14 @@ const PROFILE_MATCHES: Record<string, ModelsDevProviderMatch> = {
   'grok-subscription': catalogMatch('xai', 'enrichment-only'),
   'vercel-ai-gateway': catalogMatch('vercel')
 }
+
+const CURSOR_CATALOG_FAMILIES: readonly CursorCatalogFamily[] = [
+  { providerKey: 'openai', pattern: /^(?:gpt(?:-|$)|chatgpt(?:-|$)|codex(?:-|$)|o[1-9](?:-|$))/i },
+  { providerKey: 'anthropic', pattern: /^claude(?:-|$)/i },
+  { providerKey: 'google', pattern: /^gemini(?:-|$)/i },
+  { providerKey: 'xai', pattern: /^grok(?:-|$)/i },
+  { providerKey: 'moonshotai', pattern: /^(?:kimi|moonshot)(?:-|$)/i }
+]
 
 const XIAOMI_TOKEN_PLAN_URLS = urlMatchMap({
   'https://token-plan-cn.xiaomimimo.com/v1': 'xiaomi-token-plan-cn',
@@ -188,11 +200,24 @@ export class ModelsDevCatalogService {
   ): Promise<ModelsDevCatalogResult> {
     let match = resolveModelsDevProvider(request)
     const normalizedBaseUrl = normalizeCatalogBaseUrl(request.baseUrl)
-    if (!match && !normalizedBaseUrl) return { status: 'unmapped', models: [] }
+    const cursorMixedCatalog = request.providerId.trim().toLowerCase() === 'cursor-subscription'
+    if (!match && !normalizedBaseUrl && !cursorMixedCatalog) {
+      return { status: 'unmapped', models: [] }
+    }
 
     try {
       const proxyUrl = settings ? resolveModelProviderProxyUrl(settings) : ''
       const loaded = await this.loadCatalog(proxyUrl, request.forceRefresh === true)
+      if (cursorMixedCatalog) {
+        return {
+          status: 'ok',
+          providerKey: 'cursor-mixed',
+          providerName: 'Cursor',
+          matchMode: 'enrichment-only',
+          stale: loaded.stale,
+          models: resolveCursorModelsDevCatalog(loaded.catalog, request.modelHints ?? [])
+        }
+      }
       match ??= resolveUniqueCatalogApiMatch(loaded.catalog, normalizedBaseUrl)
       if (!match) return { status: 'unmapped', models: [] }
       const provider = sanitizeProvider(loaded.catalog[match.providerKey])
@@ -280,6 +305,49 @@ export class ModelsDevCatalogService {
       throw error
     }
   }
+}
+
+export function resolveCursorModelsDevCatalog(
+  catalog: CatalogRoot,
+  hints: readonly { id: string; aliases?: readonly string[] }[]
+): ModelsDevCatalogModel[] {
+  const providers = new Map<string, Map<string, ModelsDevCatalogModel>>()
+  const resolved: ModelsDevCatalogModel[] = []
+  const seen = new Set<string>()
+
+  for (const hint of hints.slice(0, MAX_MODEL_COUNT)) {
+    const id = boundedString(hint.id, MAX_MODEL_ID_LENGTH)?.trim()
+    const key = id?.toLowerCase() ?? ''
+    if (!id || !key || seen.has(key)) continue
+    seen.add(key)
+
+    const family = CURSOR_CATALOG_FAMILIES.find((candidate) => candidate.pattern.test(id))
+    if (!family) continue
+    let providerModels = providers.get(family.providerKey)
+    if (!providerModels) {
+      const provider = sanitizeProvider(catalog[family.providerKey])
+      if (!provider) continue
+      providerModels = new Map(
+        provider.models.map((model) => [model.id.trim().toLowerCase(), model] as const)
+      )
+      providers.set(family.providerKey, providerModels)
+    }
+
+    const candidateIds = [id, ...(hint.aliases ?? [])]
+      .map((candidate) => boundedString(candidate, MAX_MODEL_ID_LENGTH)?.trim())
+      .filter((candidate): candidate is string => Boolean(candidate))
+    const catalogModel = candidateIds
+      .map((candidate) => providerModels?.get(candidate.toLowerCase()))
+      .find((candidate): candidate is ModelsDevCatalogModel => Boolean(candidate))
+    if (!catalogModel) continue
+    resolved.push({
+      ...catalogModel,
+      id,
+      providerKey: family.providerKey
+    })
+  }
+
+  return resolved
 }
 
 function resolveUniqueCatalogApiMatch(

@@ -710,6 +710,7 @@ export async function createKunServeRuntime(
           events: child.events,
           ids: child.ids,
           debugSink: llmDebug,
+          ...(attachmentStore ? { attachmentStore } : {}),
           turnLimits: activeOptions.runtime?.turnLimits,
           enforceReadOnly: child.toolPolicy === 'readOnly'
         })]
@@ -932,6 +933,7 @@ export async function createKunServeRuntime(
 	      events,
 	      ids,
 	      debugSink: llmDebug,
+	      ...(attachmentStore ? { attachmentStore } : {}),
 	      turnLimits: activeOptions.runtime?.turnLimits
 	    }
 	  }
@@ -1699,6 +1701,11 @@ export async function createKunServeRuntime(
 	      cursorRuntimeDeps.defaultApiKey = activeOptions.apiKey
 	      cursorRuntimeDeps.defaultModel = activeOptions.model
 	      cursorRuntimeDeps.turnLimits = activeOptions.runtime?.turnLimits
+	      if (attachmentStore) {
+	        cursorRuntimeDeps.attachmentStore = attachmentStore
+	      } else {
+	        delete cursorRuntimeDeps.attachmentStore
+	      }
 	    }
 	    turnService.updateRuntimeConfig({
 	      defaultModel: activeOptions.model,

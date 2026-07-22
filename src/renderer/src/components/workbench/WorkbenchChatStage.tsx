@@ -58,6 +58,9 @@ export type WorkbenchChatStageProps = {
   onSelectSuggestion: (text: string) => void
   onBuildPlan: () => void
   onOpenPlan: () => void
+  onOpenChanges: () => void
+  onReviewChanges: () => void
+  reviewChangesDisabled: boolean
   onOpenDevPreview: () => void
   onBackToParent: () => void
   onBeginTerminalResize: PointerEventHandler<HTMLDivElement>
@@ -107,6 +110,9 @@ export function WorkbenchChatStage({
   onSelectSuggestion,
   onBuildPlan,
   onOpenPlan,
+  onOpenChanges,
+  onReviewChanges,
+  reviewChangesDisabled,
   onOpenDevPreview,
   onBackToParent,
   onBeginTerminalResize,
@@ -210,6 +216,9 @@ export function WorkbenchChatStage({
             planActionsBusy={planActionsBusy}
             onBuildPlan={onBuildPlan}
             onOpenPlan={onOpenPlan}
+            onOpenChanges={onOpenChanges}
+            onReviewChanges={onReviewChanges}
+            reviewChangesDisabled={reviewChangesDisabled}
             onComponentPrototypePrompt={composerProps.setInput}
             devPreviewCard={
               devPreviewVisible && devPreviewUrl ? (

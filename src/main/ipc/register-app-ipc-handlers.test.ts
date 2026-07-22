@@ -166,6 +166,12 @@ describe('registerAppIpcHandlers', () => {
     vi.unstubAllEnvs()
   })
 
+  it('registers the Cursor subscription discovery handler at application startup', () => {
+    registerAppIpcHandlers(registerOptions())
+
+    expect(handlers.get('cursor-subscription:discover')).toBeTypeOf('function')
+  })
+
   it('bypasses cache for development reload commands and keeps packaged reloads ordinary', async () => {
     const reload = vi.fn()
     const reloadIgnoringCache = vi.fn()

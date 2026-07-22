@@ -3,10 +3,17 @@ import type {
   Run,
   RunResult,
   SDKAgent,
+  SDKImage,
   SDKMessage,
+  SDKUserMessage,
   TokenUsage
 } from '@cursor/sdk'
+import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import type { ServeProviderConfig } from '../../config/kun-config.js'
+import {
+  MAX_TURN_ATTACHMENT_BYTES,
+  MAX_TURN_ATTACHMENT_IDS
+} from '../../contracts/attachments.js'
 import type { ModelRequestTraceRecord } from '../../contracts/model-request-trace.js'
 import type { TurnItem } from '../../contracts/items.js'
 import type { UsageSnapshot } from '../../contracts/usage.js'
@@ -55,6 +62,7 @@ export interface CursorSdkRuntimeDeps {
   events: RuntimeEventRecorder
   ids: { next(prefix: string): string }
   debugSink?: LlmDebugSink
+  attachmentStore?: AttachmentStore
   turnLimits?: TurnLimitsConfig
   streamLimits?: Partial<CursorSdkStreamLimits>
   loadSdk?: () => Promise<CursorSdkApi>
@@ -112,6 +120,67 @@ export function sanitizeCursorSdkError(error: unknown, apiKey: string): string {
   const raw = error instanceof Error ? error.message : String(error)
   const withoutSecret = apiKey ? raw.split(apiKey).join('[REDACTED]') : raw
   return withoutSecret.slice(0, MAX_CURSOR_ERROR_LENGTH)
+}
+
+export type CursorSdkImageSummary = {
+  mimeType: string
+  byteSize: number
+  width?: number
+  height?: number
+}
+
+export async function resolveCursorSdkImages(input: {
+  attachmentStore?: AttachmentStore
+  attachmentIds: readonly string[]
+  threadId: string
+  workspace: string
+}): Promise<{ images: SDKImage[]; summaries: CursorSdkImageSummary[] }> {
+  if (!input.attachmentStore || input.attachmentIds.length === 0) {
+    return { images: [], summaries: [] }
+  }
+  const images: SDKImage[] = []
+  const summaries: CursorSdkImageSummary[] = []
+  let totalBytes = 0
+  for (const id of input.attachmentIds.slice(0, MAX_TURN_ATTACHMENT_IDS)) {
+    try {
+      const attachment = await input.attachmentStore.resolveContent(id, {
+        threadId: input.threadId,
+        workspace: input.workspace
+      })
+      if (
+        attachment.kind !== 'image'
+        || !attachment.mimeType.startsWith('image/')
+        || attachment.data.byteLength <= 0
+        || totalBytes + attachment.data.byteLength > MAX_TURN_ATTACHMENT_BYTES
+      ) {
+        continue
+      }
+      totalBytes += attachment.data.byteLength
+      const dimension = positiveDimension(attachment.width, attachment.height)
+      images.push({
+        data: attachment.data.toString('base64'),
+        mimeType: attachment.mimeType,
+        ...(dimension ? { dimension } : {})
+      })
+      summaries.push({
+        mimeType: attachment.mimeType,
+        byteSize: attachment.data.byteLength,
+        ...(dimension ?? {})
+      })
+    } catch {
+      // Missing or unauthorized attachments are excluded from the delegated request.
+    }
+  }
+  return { images, summaries }
+}
+
+function positiveDimension(
+  width: number | undefined,
+  height: number | undefined
+): { width: number; height: number } | undefined {
+  return Number.isInteger(width) && Number.isInteger(height) && width! > 0 && height! > 0
+    ? { width: width!, height: height! }
+    : undefined
 }
 
 export function cursorSdkErrorCode(error: unknown): string {
@@ -216,6 +285,16 @@ export class CursorSdkRuntime implements DelegatedTurnRuntime {
       )
     })
     const model = normalizeCursorModel(turn.model || thread.model || this.deps.defaultModel)
+    const attachmentIds = userItem.attachmentIds ?? []
+    const resolvedImages = await resolveCursorSdkImages({
+      attachmentStore: this.deps.attachmentStore,
+      attachmentIds,
+      threadId,
+      workspace: thread.workspace
+    })
+    const sdkMessage: string | SDKUserMessage = resolvedImages.images.length > 0
+      ? { text: prompt, images: resolvedImages.images }
+      : prompt
     const planMode = this.deps.enforceReadOnly === true || (turn.mode ?? thread.mode) === 'plan'
     const options = cursorAgentExecutionOptions({
       workspace: thread.workspace,
@@ -242,6 +321,7 @@ export class CursorSdkRuntime implements DelegatedTurnRuntime {
       provider: resolvedProviderId,
       model,
       prompt,
+      images: resolvedImages.summaries,
       mode: options.mode ?? 'plan',
       sandboxEnabled: options.local?.sandboxOptions?.enabled !== false
     })
@@ -276,7 +356,7 @@ export class CursorSdkRuntime implements DelegatedTurnRuntime {
           ])
       agent = await Promise.race([sdk.Agent.create(options), interrupted])
       run = await Promise.race([
-        agent.send(prompt, { mode: options.mode }),
+        agent.send(sdkMessage, { mode: options.mode }),
         interrupted
       ])
 
@@ -402,6 +482,7 @@ function startCursorTrace(
     provider: string
     model: string
     prompt: string
+    images: readonly CursorSdkImageSummary[]
     mode: 'agent' | 'plan'
     sandboxEnabled: boolean
   }
@@ -421,6 +502,10 @@ function startCursorTrace(
       bodyText: JSON.stringify({
         model: input.model,
         input: input.prompt,
+        attachments: {
+          count: input.images.length,
+          images: input.images
+        },
         mode: input.mode,
         sandbox: input.sandboxEnabled
       })

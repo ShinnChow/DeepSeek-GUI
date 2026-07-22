@@ -95,6 +95,7 @@ const labels: Record<string, string> = {
   cursorSubscriptionNote: 'Enter an API key created in the Cursor dashboard.',
   cursorSubscriptionGetApiKey: 'Get Cursor API key',
   cursorSubscriptionAccount: 'Connected account: {{account}} · API key: {{keyName}}',
+  cursorSubscriptionRestartRequired: 'Fully quit Kun and reopen it, then try again.',
   modelProviderBaseUrl: 'Provider base URL',
   modelProviderEndpointFormat: 'Endpoint format',
   modelProviderRetrySection: 'Failure retry',
@@ -747,6 +748,10 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
       ]
     }))
     const claudeSubscriptionStatus = vi.fn(async () => ({ loggedIn: true }))
+    const cursorSubscriptionDiscover = vi.fn(async () => ({
+      account: { apiKeyName: 'test-key', userEmail: 'cursor@example.com' },
+      models: [{ id: 'auto', displayName: 'Auto' }]
+    }))
     const openExternal = vi.fn(async () => undefined)
     let mountedRenderers: ReactTestRenderer[] = []
 
@@ -755,12 +760,18 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
       probeModelProvider.mockClear()
       fetchModelsDevCatalog.mockClear()
       claudeSubscriptionStatus.mockClear()
+      cursorSubscriptionDiscover.mockReset()
+      cursorSubscriptionDiscover.mockResolvedValue({
+        account: { apiKeyName: 'test-key', userEmail: 'cursor@example.com' },
+        models: [{ id: 'auto', displayName: 'Auto' }]
+      })
       openExternal.mockClear()
       mountedRenderers = []
       vi.stubGlobal('window', {
         kunGui: {
           probeModelProvider,
           fetchModelsDevCatalog,
+          cursorSubscriptionDiscover,
           openExternal,
           claudeSubscriptionStatus,
           claudeSubscriptionSdkStatus: vi.fn(async () => ({ installed: true })),
@@ -812,6 +823,107 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
 
       expect(openExternal).toHaveBeenCalledOnce()
       expect(openExternal).toHaveBeenCalledWith('https://cursor.com/dashboard?tab=integrations')
+    })
+
+    it('turns a stale Cursor discovery handler error into restart guidance', async () => {
+      cursorSubscriptionDiscover.mockRejectedValueOnce(
+        new Error(
+          "Error invoking remote method 'cursor-subscription:discover': "
+          + "Error: No handler registered for 'cursor-subscription:discover'"
+        )
+      )
+      const settings = defaultModelProviderSettings()
+      const cursor = modelProviderPresetProfile(
+        getModelProviderPreset('cursor-subscription')!,
+        'cursor-secret'
+      )
+      const renderer = await mountProviders({
+        ...baseCtx(),
+        provider: { ...settings, providers: [...settings.providers, cursor] },
+        kun: { ...defaultKunRuntimeSettings(), providerId: cursor.id, model: 'auto' }
+      })
+
+      await act(async () => {
+        findButton(renderer, 'Test connection').props.onClick()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(rendererText(renderer)).toContain(
+        'Connection failed: Fully quit Kun and reopen it, then try again.'
+      )
+      expect(rendererText(renderer)).not.toContain('No handler registered')
+    })
+
+    it('imports Cursor mixed-vendor context, vision, and SDK aliases', async () => {
+      cursorSubscriptionDiscover.mockResolvedValueOnce({
+        account: { apiKeyName: 'test-key', userEmail: 'cursor@example.com' },
+        models: [{
+          id: 'gemini-3.6-flash',
+          displayName: 'Gemini 3.6 Flash',
+          aliases: ['gemini-flash-latest']
+        }]
+      })
+      fetchModelsDevCatalog.mockResolvedValueOnce({
+        status: 'ok',
+        providerKey: 'cursor-mixed',
+        providerName: 'Cursor',
+        matchMode: 'enrichment-only',
+        stale: false,
+        models: [{
+          id: 'gemini-3.6-flash',
+          providerKey: 'google',
+          inputModalities: ['text', 'image'],
+          outputModalities: ['text'],
+          contextWindowTokens: 1_048_576,
+          maxOutputTokens: 65_536,
+          reasoning: true,
+          toolCalling: true
+        }]
+      })
+      const settings = defaultModelProviderSettings()
+      const cursor = modelProviderPresetProfile(
+        getModelProviderPreset('cursor-subscription')!,
+        'cursor-secret'
+      )
+      const update = vi.fn()
+      const renderer = await mountProviders({
+        ...baseCtx(),
+        provider: { ...settings, providers: [...settings.providers, cursor] },
+        kun: { ...defaultKunRuntimeSettings(), providerId: cursor.id, model: 'auto' },
+        update
+      })
+
+      await act(async () => findButton(renderer, 'Models').props.onClick())
+      await act(async () => {
+        findButton(renderer, 'Fetch models').props.onClick()
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(fetchModelsDevCatalog).toHaveBeenCalledWith({
+        providerId: 'cursor-subscription',
+        baseUrl: '',
+        forceRefresh: true,
+        modelHints: [{
+          id: 'gemini-3.6-flash',
+          aliases: ['gemini-flash-latest']
+        }]
+      })
+      expect(findButton(renderer, 'Import 1').props.disabled).toBe(false)
+      await act(async () => findButton(renderer, 'Import 1').props.onClick())
+
+      const updatedProviders = update.mock.calls[0]?.[0]?.provider?.providers as ModelProviderProfileV1[]
+      const updatedCursor = updatedProviders.find((item) => item.id === cursor.id)
+      expect(updatedCursor?.models).toEqual(['gemini-3.6-flash'])
+      expect(updatedCursor?.modelProfiles['gemini-3.6-flash']).toEqual(expect.objectContaining({
+        aliases: ['gemini-flash-latest'],
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 65_536,
+        inputModalities: ['text', 'image'],
+        messageParts: ['text', 'image_url']
+      }))
     })
 
     it('renders task tabs and keeps the selected task while switching providers', async () => {

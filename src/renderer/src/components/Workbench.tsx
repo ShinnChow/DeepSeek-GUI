@@ -305,7 +305,7 @@ export function Workbench(): ReactElement {
   const inputRef = useRef('')
   const {
     activeClawChannel, activeCodeCanvasWorkspace, activeSkillWorkspace, codeThreads,
-    composerChangeSummary, currentSideConversations, currentSideRunningCount, devPreviewBlocks,
+    currentSideConversations, currentSideRunningCount, devPreviewBlocks,
     latestAutoOpenDevPreviewUrl, latestDevPreviewUrl,
     timelineBlocks, timelineLiveAssistant, timelineLiveReasoning
   } = useWorkbenchDerivedState({
@@ -821,15 +821,13 @@ export function Workbench(): ReactElement {
     attachmentUploadEnabled, attachmentUploadBusy, attachmentUploadError,
     activeSddDraft: Boolean(activeSddDraft), composerFileReferences,
     extraFileMentionCandidates: designDocumentFileMentionCandidates, webAccessAvailable,
-    composerExecutionSettings, composerExecutionApplying, composerChangeSummary, runtimeSkills, disabledSkillIds,
+    composerExecutionSettings, composerExecutionApplying, runtimeSkills, disabledSkillIds,
     handlePickAttachments, handlePasteClipboardImage, removeComposerAttachment, addComposerFileReference,
     pickComposerFileReferences, openFileTreeSidePanel: openWorkspaceFileTreeTab,
     openDesignFileTreeSidePanel: openDesignFileTreeTab,
     removeComposerFileReference, queuedMessages,
     removeQueuedMessage, guideQueuedMessage, interrupt, handleGuiPlanCommand, useWorktreePool, worktreeBranch, setWorktreeBranch,
     setUseWorktreePool, createThread, activeSkillWorkspace, reviewActiveThread, updateComposerExecutionSettings,
-    openChangesPanel: () => setRightPanelMode(BUILTIN_RIGHT_PANEL_IDS.changes),
-    runtimeConnectionReady: runtimeConnection === 'ready',
     spawnSideConversation, openSideConversationDraft
   })
   const rightPanelSharedProps = buildWorkbenchRightPanelSharedProps({
@@ -1164,6 +1162,9 @@ export function Workbench(): ReactElement {
             onSelectSuggestion: (text) => setInput(text),
             onBuildPlan: () => void buildGuiPlan(),
             onOpenPlan: openGuiPlanPanel,
+            onOpenChanges: () => setRightPanelMode(BUILTIN_RIGHT_PANEL_IDS.changes),
+            onReviewChanges: () => void reviewActiveThread({ kind: 'uncommittedChanges' }),
+            reviewChangesDisabled: busy || runtimeConnection !== 'ready',
             onOpenDevPreview: openDevPreview,
             onBackToParent: () => {
               if (activeThreadParentId) void selectThread(activeThreadParentId)

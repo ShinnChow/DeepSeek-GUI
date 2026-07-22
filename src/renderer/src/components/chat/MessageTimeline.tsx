@@ -77,6 +77,11 @@ type Props = {
   onBuildPlan?: () => void
   /** Opens/focuses the Plan panel (Open button on the inline card). */
   onOpenPlan?: () => void
+  /** Opens the current workspace changes panel from a turn summary. */
+  onOpenChanges?: () => void
+  /** Starts a review of the current workspace changes from a turn summary. */
+  onReviewChanges?: () => void
+  reviewChangesDisabled?: boolean
   compactCards?: boolean
   onOpenChildThread?: OpenChildThreadHandler
   onComponentPrototypePrompt?: (prompt: string) => void
@@ -405,6 +410,9 @@ export function MessageTimeline({
   planActionsBusy,
   onBuildPlan,
   onOpenPlan,
+  onOpenChanges,
+  onReviewChanges,
+  reviewChangesDisabled = false,
   compactCards = false,
   onOpenChildThread,
   onComponentPrototypePrompt,
@@ -815,6 +823,9 @@ export function MessageTimeline({
                 planActionsBusy={planActionsBusy}
                 onBuildPlan={onBuildPlan}
                 onOpenPlan={onOpenPlan}
+                onOpenChanges={onOpenChanges}
+                onReviewChanges={onReviewChanges}
+                reviewChangesDisabled={reviewChangesDisabled}
                 onOpenChildThread={onOpenChildThread}
                 onComponentPrototypePrompt={onComponentPrototypePrompt}
                 filePreviewWorkspaceRoot={filePreviewWorkspaceRoot}
@@ -929,6 +940,9 @@ export type ConversationTurnProps = {
   planActionsBusy?: boolean
   onBuildPlan?: () => void
   onOpenPlan?: () => void
+  onOpenChanges?: () => void
+  onReviewChanges?: () => void
+  reviewChangesDisabled?: boolean
   onOpenChildThread?: OpenChildThreadHandler
   onComponentPrototypePrompt?: (prompt: string) => void
   filePreviewWorkspaceRoot: string
@@ -951,6 +965,9 @@ export function ConversationTurn({
   planActionsBusy,
   onBuildPlan,
   onOpenPlan,
+  onOpenChanges,
+  onReviewChanges,
+  reviewChangesDisabled = false,
   onOpenChildThread,
   onComponentPrototypePrompt,
   filePreviewWorkspaceRoot,
@@ -1198,7 +1215,14 @@ export function ConversationTurn({
       ) : null}
 
       {!isProcessing && turnFileChanges.length > 0 ? (
-        <TurnChangeSummary changes={turnFileChanges} viewportRef={viewportRef} compact={compactCards} />
+        <TurnChangeSummary
+          changes={turnFileChanges}
+          viewportRef={viewportRef}
+          compact={compactCards}
+          onOpenChanges={allowMainThreadActions ? onOpenChanges : undefined}
+          onReviewChanges={allowMainThreadActions ? onReviewChanges : undefined}
+          reviewChangesDisabled={reviewChangesDisabled}
+        />
       ) : null}
 
       {/* The compaction marker renders LAST so "已压缩上下文" sits at the very
@@ -1253,6 +1277,9 @@ const MemoMessageTurn = memo(ConversationTurn, (prev, next) => (
   prev.planActionsBusy === next.planActionsBusy &&
   prev.onBuildPlan === next.onBuildPlan &&
   prev.onOpenPlan === next.onOpenPlan &&
+  prev.onOpenChanges === next.onOpenChanges &&
+  prev.onReviewChanges === next.onReviewChanges &&
+  prev.reviewChangesDisabled === next.reviewChangesDisabled &&
   prev.onOpenChildThread === next.onOpenChildThread &&
   prev.onComponentPrototypePrompt === next.onComponentPrototypePrompt &&
   prev.filePreviewWorkspaceRoot === next.filePreviewWorkspaceRoot &&

@@ -12,7 +12,6 @@ import {
 } from 'react'
 import {
   BarChart3,
-  FileEdit,
   FileText,
   Folder,
   GitBranch,
@@ -27,7 +26,6 @@ import {
   Plus,
   Puzzle,
   PlayCircle,
-  SearchCode,
   Send,
   Sparkles,
   Square,
@@ -103,7 +101,6 @@ export type {
 import { useComposerDraft } from './use-composer-draft'
 import { usePromptOptimizationSettings, useSpeechToTextSettings, useVoiceDictation } from './use-voice-dictation'
 import { VoiceRecordingStrip } from './VoiceRecordingStrip'
-import type { ComposerChangedFile } from '../../lib/composer-change-summary'
 import type { DesignComposerContext } from '../../design/design-composer-context'
 export { calculateComposerMenuScrollTop } from './composer-menu-scroll'
 import { useComposerFileMentions } from './use-composer-file-mentions'
@@ -176,8 +173,6 @@ type Props = {
   webAccessAvailable?: boolean
   executionSettings?: ComposerExecutionSettings | null
   executionSettingsApplying?: boolean
-  changedFiles?: ComposerChangedFile[]
-  changedFileStats?: { added: number; removed: number } | null
   skillCommands?: Array<{
     id: string
     name: string
@@ -212,9 +207,6 @@ type Props = {
   onToggleWorktreeMode?: () => void
   onReviewCommand?: (target: ReviewTarget) => void
   onExecutionSettingsChange?: (patch: Partial<ComposerExecutionSettings>) => void
-  onOpenChanges?: () => void
-  onReviewChanges?: () => void
-  reviewChangesDisabled?: boolean
   /**
    * When set, the `/btw` slash command is offered. It is omitted from
    * side-conversation composers (non-goal: no nested `/btw`).
@@ -236,7 +228,6 @@ const EMPTY_MODEL_GROUPS: ModelProviderModelGroup[] = []
 const EMPTY_ATTACHMENTS: AttachmentReference[] = []
 const EMPTY_CONTEXT_CHIPS: DesignComposerContext[] = []
 const EMPTY_FILE_REFERENCES: ComposerFileReference[] = []
-const EMPTY_CHANGED_FILES: ComposerChangedFile[] = []
 const EMPTY_SKILL_COMMANDS: NonNullable<Props['skillCommands']> = []
 
 export function formatGoalElapsedSeconds(seconds: number): string {
@@ -307,8 +298,6 @@ export function FloatingComposer({
   extraFileMentionCandidates = EMPTY_FILE_REFERENCES,
   executionSettings = null,
   executionSettingsApplying = false,
-  changedFiles = EMPTY_CHANGED_FILES,
-  changedFileStats = null,
   skillCommands = EMPTY_SKILL_COMMANDS,
   disabledSkillIds,
   onPickAttachments,
@@ -330,9 +319,6 @@ export function FloatingComposer({
   onToggleWorktreeMode,
   onReviewCommand,
   onExecutionSettingsChange,
-  onOpenChanges,
-  onReviewChanges,
-  reviewChangesDisabled = false,
   onBtwCommand,
   hideBtwCommand = false,
   contextWindowTokens,
@@ -466,16 +452,6 @@ export function FloatingComposer({
   const showExecutionSettingsPicker = showIntentToolbar
     && Boolean(executionSettings)
     && Boolean(onExecutionSettingsChange)
-  const showChangeSummary = !compact && route === 'chat' && changedFiles.length > 0
-  const effectiveChangedFileStats = changedFileStats ?? changedFiles.reduce(
-    (stats, file) => ({
-      added: stats.added + file.added,
-      removed: stats.removed + file.removed
-    }),
-    { added: 0, removed: 0 }
-  )
-  const visibleChangedFiles = changedFiles.slice(0, 3)
-  const hiddenChangedFileCount = Math.max(0, changedFiles.length - visibleChangedFiles.length)
   const stretchModelPicker =
     compact && modelPickerMode === 'combobox' && !showToolbarStartControls && !hideModelPicker
   const draft = useComposerDraft({ input, canCompose: canEditComposer })
@@ -1421,60 +1397,6 @@ export function FloatingComposer({
           onDragOver={handleComposerDragOver}
           onDrop={handleComposerDrop}
         >
-          {showChangeSummary ? (
-            <div className="ds-no-drag mb-1 rounded-2xl border border-ds-border-muted bg-ds-card px-3 py-2 shadow-sm">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-ds-hover text-ds-muted">
-                  <FileEdit className="h-4 w-4" strokeWidth={1.8} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] font-semibold text-ds-ink">
-                    <span className="truncate">{t('composerChangedFilesTitle', { count: changedFiles.length })}</span>
-                    <span className="font-mono text-[12px] text-ds-diff-added">
-                      +{effectiveChangedFileStats.added}
-                    </span>
-                    <span className="font-mono text-[12px] text-ds-diff-removed">
-                      -{effectiveChangedFileStats.removed}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ds-muted">
-                    {visibleChangedFiles.map((file) => (
-                      <span key={file.path} className="max-w-[220px] truncate" title={file.path}>
-                        {file.path}
-                      </span>
-                    ))}
-                    {hiddenChangedFileCount > 0 ? (
-                      <span className="text-ds-faint">
-                        {t('composerChangedFilesMore', { count: hiddenChangedFileCount })}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {onOpenChanges ? (
-                    <button
-                      type="button"
-                      onClick={onOpenChanges}
-                      className="rounded-full border border-ds-border bg-ds-card px-3 py-1.5 text-[12px] font-semibold text-ds-ink transition hover:bg-ds-hover"
-                    >
-                      {t('composerOpenChanges')}
-                    </button>
-                  ) : null}
-                  {onReviewChanges ? (
-                    <button
-                      type="button"
-                      disabled={reviewChangesDisabled}
-                      onClick={onReviewChanges}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-ds-border bg-ds-card px-3 py-1.5 text-[12px] font-semibold text-ds-ink transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-55"
-                    >
-                      <SearchCode className="h-3.5 w-3.5" strokeWidth={1.8} />
-                      {t('composerReviewChanges')}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
           {contextChips.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 px-1">
               {contextChips.map((chip) => {

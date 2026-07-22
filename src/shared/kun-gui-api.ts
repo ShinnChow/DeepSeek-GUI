@@ -317,8 +317,36 @@ export type ModelProviderProbeResult =
   | { ok: false; message: string }
 export type ProviderModelCatalogSource = 'provider-api' | 'models-dev'
 export type ModelsDevCatalogModality = 'text' | 'audio' | 'image' | 'video' | 'pdf'
+export type CursorSubscriptionModelParameterValue = {
+  value: string
+  displayName?: string
+}
+export type CursorSubscriptionModelParameter = {
+  id: string
+  displayName?: string
+  values: CursorSubscriptionModelParameterValue[]
+}
+export type CursorSubscriptionModelVariant = {
+  displayName: string
+  description?: string
+  isDefault?: boolean
+  params: Array<{ id: string; value: string }>
+}
+export type CursorSubscriptionModel = {
+  id: string
+  displayName: string
+  description?: string
+  aliases?: string[]
+  parameters?: CursorSubscriptionModelParameter[]
+  variants?: CursorSubscriptionModelVariant[]
+}
+export type ModelsDevCatalogModelHint = {
+  id: string
+  aliases?: string[]
+}
 export type ModelsDevCatalogModel = {
   id: string
+  providerKey?: string
   name?: string
   description?: string
   inputModalities: ModelsDevCatalogModality[]
@@ -332,6 +360,7 @@ export type ModelsDevCatalogRequest = {
   providerId: string
   baseUrl: string
   forceRefresh?: boolean
+  modelHints?: ModelsDevCatalogModelHint[]
 }
 export type ModelsDevCatalogMatchMode = 'catalog' | 'enrichment-only'
 export type ModelsDevCatalogResult =
@@ -545,7 +574,7 @@ export type KunGuiApi = ExtensionIpcApi & {
       userFirstName?: string
       userLastName?: string
     }
-    models: string[]
+    models: CursorSubscriptionModel[]
   }>
   setSettings: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
   saveSettingsSilent: (partial: AppSettingsPatch) => Promise<AppSettingsV1>

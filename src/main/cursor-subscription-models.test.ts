@@ -39,7 +39,7 @@ type FakeChild = EventEmitter & {
 }
 
 describe('Cursor subscription SDK discovery', () => {
-  it('parses account metadata and unique canonical model ids', () => {
+  it('parses bounded account metadata and unique structured models', () => {
     expect(parseCursorDiscoveryOutput(frame({
       ok: true,
       account: {
@@ -48,8 +48,23 @@ describe('Cursor subscription SDK discovery', () => {
         ignored: 'field'
       },
       models: [
-        { id: 'auto' },
-        { id: 'composer-2.5' },
+        {
+          id: 'auto',
+          displayName: 'Auto',
+          aliases: ['cursor-auto'],
+          parameters: [{
+            id: 'thinking',
+            displayName: 'Thinking',
+            values: [{ value: 'high', displayName: 'High' }]
+          }],
+          variants: [{
+            displayName: 'Max',
+            description: 'Maximum context',
+            isDefault: true,
+            params: [{ id: 'thinking', value: 'high' }]
+          }]
+        },
+        { id: 'composer-2.5', displayName: 'Composer 2.5', description: 'Cursor model' },
         { id: 'auto' },
         { id: '' },
         null
@@ -59,7 +74,29 @@ describe('Cursor subscription SDK discovery', () => {
         apiKeyName: 'Kun',
         userEmail: 'user@example.com'
       },
-      models: ['auto', 'composer-2.5']
+      models: [
+        {
+          id: 'auto',
+          displayName: 'Auto',
+          aliases: ['cursor-auto'],
+          parameters: [{
+            id: 'thinking',
+            displayName: 'Thinking',
+            values: [{ value: 'high', displayName: 'High' }]
+          }],
+          variants: [{
+            displayName: 'Max',
+            description: 'Maximum context',
+            isDefault: true,
+            params: [{ id: 'thinking', value: 'high' }]
+          }]
+        },
+        {
+          id: 'composer-2.5',
+          displayName: 'Composer 2.5',
+          description: 'Cursor model'
+        }
+      ]
     })
   })
 
@@ -113,7 +150,7 @@ describe('Cursor subscription SDK discovery', () => {
     expect(received).toBe('cursor-super-secret')
     expect(result).toEqual({
       account: { apiKeyName: 'Kun test' },
-      models: ['auto']
+      models: [{ id: 'auto', displayName: 'auto' }]
     })
   })
 

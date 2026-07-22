@@ -1436,6 +1436,7 @@
   "cursorSubscriptionNote": "填写在 Cursor 控制台创建的 API Key。Kun 只调用官方 Cursor SDK，不要求安装 Cursor 桌面端，也不会读取其本地登录。",
   "cursorSubscriptionGetApiKey": "前往 Cursor 获取 API Key",
   "cursorSubscriptionAccount": "已连接账户：{{account}} · API Key：{{keyName}}",
+  "cursorSubscriptionRestartRequired": "Kun 主进程仍是旧版本。请完全退出 Kun 后重新打开，再测试连接。",
   "geminiCliChecking": "正在检测 Antigravity CLI…",
   "geminiCliMissing": "尚未安装 Antigravity CLI",
   "geminiCliDownloading": "正在下载 Antigravity CLI…",

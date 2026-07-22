@@ -4,6 +4,7 @@ import {
   MODELS_DEV_CACHE_TTL_MS,
   MODELS_DEV_MAX_RESPONSE_BYTES,
   ModelsDevCatalogService,
+  resolveCursorModelsDevCatalog,
   resolveModelsDevProvider
 } from './models-dev-catalog'
 
@@ -36,6 +37,56 @@ function catalogBody(): string {
           tool_call: true,
           modalities: { input: ['text', 'image'], output: ['text'] },
           limit: { context: 1_000_000, output: 128_000 }
+        }
+      }
+    },
+    anthropic: {
+      id: 'anthropic',
+      name: 'Anthropic',
+      models: {
+        'claude-sonnet-5': {
+          id: 'claude-sonnet-5',
+          reasoning: true,
+          tool_call: true,
+          modalities: { input: ['text', 'image'], output: ['text'] },
+          limit: { context: 1_000_000, output: 128_000 }
+        }
+      }
+    },
+    google: {
+      id: 'google',
+      name: 'Google',
+      models: {
+        'gemini-3.6-flash': {
+          id: 'gemini-3.6-flash',
+          reasoning: true,
+          tool_call: true,
+          modalities: { input: ['text', 'image', 'audio'], output: ['text'] },
+          limit: { context: 1_048_576, output: 65_536 }
+        }
+      }
+    },
+    xai: {
+      id: 'xai',
+      name: 'xAI',
+      models: {
+        'grok-4.5': {
+          id: 'grok-4.5',
+          tool_call: true,
+          modalities: { input: ['text', 'image'], output: ['text'] },
+          limit: { context: 500_000, output: 64_000 }
+        }
+      }
+    },
+    moonshotai: {
+      id: 'moonshotai',
+      name: 'Moonshot AI',
+      models: {
+        'kimi-k2.5': {
+          id: 'kimi-k2.5',
+          tool_call: true,
+          modalities: { input: ['text'], output: ['text'] },
+          limit: { context: 256_000, output: 32_000 }
         }
       }
     },
@@ -123,6 +174,55 @@ describe('resolveModelsDevProvider', () => {
 })
 
 describe('ModelsDevCatalogService', () => {
+  it('enriches Cursor models only from deterministic original providers', async () => {
+    const fetcher = vi.fn(async () => new Response(catalogBody(), { status: 200 }))
+    const service = new ModelsDevCatalogService(fetcher)
+    const result = await service.fetch({
+      providerId: 'cursor-subscription',
+      baseUrl: '',
+      modelHints: [
+        { id: 'gpt-cursor-latest', aliases: ['gpt-5.5'] },
+        { id: 'claude-sonnet-5' },
+        { id: 'gemini-3.6-flash' },
+        { id: 'grok-4.5' },
+        { id: 'kimi-k2.5' },
+        { id: 'composer-2.5' },
+        { id: 'auto' }
+      ]
+    })
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      providerKey: 'cursor-mixed',
+      matchMode: 'enrichment-only',
+      models: [
+        { id: 'gpt-cursor-latest', providerKey: 'openai', contextWindowTokens: 1_000_000 },
+        { id: 'claude-sonnet-5', providerKey: 'anthropic', contextWindowTokens: 1_000_000 },
+        {
+          id: 'gemini-3.6-flash',
+          providerKey: 'google',
+          contextWindowTokens: 1_048_576,
+          inputModalities: ['text', 'image', 'audio']
+        },
+        { id: 'grok-4.5', providerKey: 'xai', contextWindowTokens: 500_000 },
+        { id: 'kimi-k2.5', providerKey: 'moonshotai', contextWindowTokens: 256_000 }
+      ]
+    })
+    if (result.status === 'ok') {
+      expect(result.models.map((model) => model.id)).not.toContain('composer-2.5')
+      expect(result.models.map((model) => model.id)).not.toContain('auto')
+    }
+  })
+
+  it('does not globally match Cursor-owned or unknown model ids', () => {
+    const catalog = JSON.parse(catalogBody()) as Record<string, unknown>
+    expect(resolveCursorModelsDevCatalog(catalog, [
+      { id: 'auto', aliases: ['gpt-5.5'] },
+      { id: 'composer-2.5', aliases: ['gpt-5.5'] },
+      { id: 'unknown-model', aliases: ['claude-sonnet-5'] }
+    ])).toEqual([])
+  })
+
   it('sanitizes one matched provider and never sends provider credentials', async () => {
     const fetcher = vi.fn(async (
       _input: string | URL,

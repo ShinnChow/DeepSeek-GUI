@@ -157,9 +157,15 @@ export function mergeProviderModelIdsCaseInsensitive(
 export function enrichProviderModelProfiles(
   provider: Pick<ModelProviderProfileV1, 'modelProfiles'>,
   selectedChatModelIds: readonly string[],
-  catalogModels: readonly ModelsDevCatalogModel[]
+  catalogModels: readonly ModelsDevCatalogModel[],
+  discoveredAliases: Readonly<Record<string, readonly string[]>> = {}
 ): Record<string, ModelProviderModelProfileV1> {
   const catalogById = new Map(catalogModels.map((model) => [modelKey(model.id), model] as const))
+  const aliasesById = new Map(
+    Object.entries(discoveredAliases)
+      .map(([modelId, aliases]) => [modelKey(modelId), normalizeAliases(aliases)] as const)
+      .filter(([modelId]) => Boolean(modelId))
+  )
   const profileKeyById = new Map(
     Object.keys(provider.modelProfiles).map((key) => [modelKey(key), key] as const)
   )
@@ -168,33 +174,54 @@ export function enrichProviderModelProfiles(
   for (const rawModelId of selectedChatModelIds) {
     const normalizedId = modelKey(rawModelId)
     const catalog = catalogById.get(normalizedId)
-    if (!catalog) continue
+    const aliases = aliasesById.get(normalizedId) ?? []
+    if (!catalog && aliases.length === 0) continue
     const existingKey = profileKeyById.get(normalizedId)
     if (!existingKey) {
+      if (!catalog) continue
       if (next === provider.modelProfiles) next = { ...provider.modelProfiles }
       const key = normalizedId
-      next[key] = modelProfileFromCatalog(catalog)
+      next[key] = {
+        ...modelProfileFromCatalog(catalog),
+        ...(aliases.length ? { aliases } : {})
+      }
       profileKeyById.set(normalizedId, key)
       continue
     }
 
     const existing = next[existingKey]
-    const addContext = existing.contextWindowTokens === undefined && catalog.contextWindowTokens !== undefined
-    const addOutput = existing.maxOutputTokens === undefined && catalog.maxOutputTokens !== undefined
-    if (!addContext && !addOutput) continue
+    const addContext = existing.contextWindowTokens === undefined && catalog?.contextWindowTokens !== undefined
+    const addOutput = existing.maxOutputTokens === undefined && catalog?.maxOutputTokens !== undefined
+    const mergedAliases = normalizeAliases([...(existing.aliases ?? []), ...aliases])
+    const addAliases = mergedAliases.length !== (existing.aliases?.length ?? 0)
+    if (!addContext && !addOutput && !addAliases) continue
     if (next === provider.modelProfiles) next = { ...provider.modelProfiles }
     next[existingKey] = {
       ...existing,
+      ...(mergedAliases.length ? { aliases: mergedAliases } : {}),
       ...(addContext
-        ? { contextWindowTokens: catalog.contextWindowTokens }
+        ? { contextWindowTokens: catalog?.contextWindowTokens }
         : {}),
       ...(addOutput
-        ? { maxOutputTokens: catalog.maxOutputTokens }
+        ? { maxOutputTokens: catalog?.maxOutputTokens }
         : {})
     }
   }
 
   return next
+}
+
+function normalizeAliases(values: readonly string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const aliases: string[] = []
+  for (const raw of values ?? []) {
+    const alias = raw.trim()
+    const key = modelKey(alias)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    aliases.push(alias)
+  }
+  return aliases
 }
 
 export function modelProfileFromCatalog(

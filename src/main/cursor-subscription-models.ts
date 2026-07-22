@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import type {
+  CursorSubscriptionModel,
+  CursorSubscriptionModelParameter,
+  CursorSubscriptionModelVariant
+} from '../shared/kun-gui-api'
 
 const CURSOR_SDK_PACKAGE = '@cursor/sdk'
 const FRAME_MARKER = '<<<KUN_CURSOR_SDK>>>'
@@ -8,6 +13,13 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const MAX_STDOUT_BYTES = 1024 * 1024
 const MAX_STDERR_BYTES = 64 * 1024
 const MAX_MODEL_ID_LENGTH = 512
+const MAX_MODEL_NAME_LENGTH = 256
+const MAX_MODEL_DESCRIPTION_LENGTH = 2_000
+const MAX_MODEL_COUNT = 500
+const MAX_MODEL_ALIASES = 32
+const MAX_MODEL_PARAMETERS = 32
+const MAX_MODEL_PARAMETER_VALUES = 64
+const MAX_MODEL_VARIANTS = 64
 const MAX_ACCOUNT_FIELD_LENGTH = 512
 
 export type CursorSubscriptionAccount = {
@@ -19,7 +31,7 @@ export type CursorSubscriptionAccount = {
 
 export type CursorSubscriptionDiscovery = {
   account: CursorSubscriptionAccount
-  models: string[]
+  models: CursorSubscriptionModel[]
 }
 
 type CursorDiscoveryFrame =
@@ -201,15 +213,115 @@ export function sanitizeCursorError(error: unknown, apiKey: string): string {
   return redacted.slice(0, 2_000) || 'Cursor SDK request failed.'
 }
 
-function normalizeCursorModels(value: unknown): string[] {
+function normalizeCursorModels(value: unknown): CursorSubscriptionModel[] {
   if (!Array.isArray(value)) return []
-  const ids = value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return ''
-      return boundedString((entry as { id?: unknown }).id, MAX_MODEL_ID_LENGTH)
+  const models: CursorSubscriptionModel[] = []
+  const seen = new Set<string>()
+  for (const entry of value.slice(0, MAX_MODEL_COUNT)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const model = entry as Record<string, unknown>
+    const id = safeModelString(model.id, MAX_MODEL_ID_LENGTH)
+    const key = id.toLowerCase()
+    if (!id || seen.has(key)) continue
+    seen.add(key)
+    const displayName = safeModelString(model.displayName, MAX_MODEL_NAME_LENGTH) || id
+    const description = safeModelString(model.description, MAX_MODEL_DESCRIPTION_LENGTH)
+    const aliases = normalizeStringList(model.aliases, MAX_MODEL_ALIASES, MAX_MODEL_ID_LENGTH)
+      .filter((alias) => alias.toLowerCase() !== key)
+    const parameters = normalizeCursorModelParameters(model.parameters)
+    const variants = normalizeCursorModelVariants(model.variants)
+    models.push({
+      id,
+      displayName,
+      ...(description ? { description } : {}),
+      ...(aliases.length ? { aliases } : {}),
+      ...(parameters.length ? { parameters } : {}),
+      ...(variants.length ? { variants } : {})
     })
-    .filter((id) => id.length > 0 && !/[\u0000-\u001f\u007f]/u.test(id))
-  return [...new Set(ids)]
+  }
+  return models
+}
+
+function normalizeCursorModelParameters(value: unknown): CursorSubscriptionModelParameter[] {
+  if (!Array.isArray(value)) return []
+  const parameters: CursorSubscriptionModelParameter[] = []
+  const seen = new Set<string>()
+  for (const entry of value.slice(0, MAX_MODEL_PARAMETERS)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const parameter = entry as Record<string, unknown>
+    const id = safeModelString(parameter.id, MAX_MODEL_ID_LENGTH)
+    const key = id.toLowerCase()
+    if (!id || seen.has(key)) continue
+    seen.add(key)
+    const displayName = safeModelString(parameter.displayName, MAX_MODEL_NAME_LENGTH)
+    const values = Array.isArray(parameter.values)
+      ? parameter.values.slice(0, MAX_MODEL_PARAMETER_VALUES).flatMap((raw) => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+          const item = raw as Record<string, unknown>
+          const itemValue = safeModelString(item.value, MAX_MODEL_ID_LENGTH)
+          if (!itemValue) return []
+          const itemDisplayName = safeModelString(item.displayName, MAX_MODEL_NAME_LENGTH)
+          return [{
+            value: itemValue,
+            ...(itemDisplayName ? { displayName: itemDisplayName } : {})
+          }]
+        })
+      : []
+    if (values.length === 0) continue
+    parameters.push({
+      id,
+      ...(displayName ? { displayName } : {}),
+      values
+    })
+  }
+  return parameters
+}
+
+function normalizeCursorModelVariants(value: unknown): CursorSubscriptionModelVariant[] {
+  if (!Array.isArray(value)) return []
+  const variants: CursorSubscriptionModelVariant[] = []
+  for (const entry of value.slice(0, MAX_MODEL_VARIANTS)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const variant = entry as Record<string, unknown>
+    const displayName = safeModelString(variant.displayName, MAX_MODEL_NAME_LENGTH)
+    if (!displayName) continue
+    const description = safeModelString(variant.description, MAX_MODEL_DESCRIPTION_LENGTH)
+    const params = Array.isArray(variant.params)
+      ? variant.params.slice(0, MAX_MODEL_PARAMETERS).flatMap((raw) => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+          const item = raw as Record<string, unknown>
+          const id = safeModelString(item.id, MAX_MODEL_ID_LENGTH)
+          const itemValue = safeModelString(item.value, MAX_MODEL_ID_LENGTH)
+          return id && itemValue ? [{ id, value: itemValue }] : []
+        })
+      : []
+    variants.push({
+      displayName,
+      ...(description ? { description } : {}),
+      ...(variant.isDefault === true ? { isDefault: true } : {}),
+      params
+    })
+  }
+  return variants
+}
+
+function normalizeStringList(value: unknown, maxItems: number, maxLength: number): string[] {
+  if (!Array.isArray(value)) return []
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value.slice(0, maxItems)) {
+    const item = safeModelString(entry, maxLength)
+    const key = item.toLowerCase()
+    if (!item || seen.has(key)) continue
+    seen.add(key)
+    result.push(item)
+  }
+  return result
+}
+
+function safeModelString(value: unknown, maxLength: number): string {
+  const text = boundedString(value, maxLength)
+  return /[\u0000-\u001f\u007f]/u.test(text) ? '' : text
 }
 
 function normalizeCursorAccount(value: unknown): CursorSubscriptionAccount {

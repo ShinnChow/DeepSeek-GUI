@@ -51,6 +51,7 @@ import {
 } from '@shared/app-settings'
 import type { ModelProviderPreset } from '@shared/model-provider-presets'
 import type {
+  CursorSubscriptionModel,
   ModelsDevCatalogResult,
   ModelProviderProbeResult
 } from '@shared/kun-gui-api'
@@ -186,6 +187,23 @@ function isAgentSdkProvider(provider: ModelProviderProfileV1): boolean {
 
 function isCursorSubscriptionProvider(provider: ModelProviderProfileV1): boolean {
   return provider.kind === 'cursor-sdk'
+}
+
+const CURSOR_SUBSCRIPTION_DISCOVERY_CHANNEL = 'cursor-subscription:discover'
+
+function cursorSubscriptionDiscoveryErrorMessage(
+  error: unknown,
+  bridgeUnavailableMessage: string
+): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (
+    message.includes(`No handler registered for '${CURSOR_SUBSCRIPTION_DISCOVERY_CHANNEL}'`)
+    || message.includes(`No bridge registered for '${CURSOR_SUBSCRIPTION_DISCOVERY_CHANNEL}'`)
+    || /cursorSubscriptionDiscover.*not a function/i.test(message)
+  ) {
+    return bridgeUnavailableMessage
+  }
+  return message
 }
 
 function isDelegatedEndpointProvider(provider: ModelProviderProfileV1): boolean {
@@ -1329,6 +1347,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
     | {
         providerId: string
         providerModelIds: string[]
+        modelAliases?: Record<string, string[]>
         catalogResult: ModelsDevCatalogResult
         providerError?: string
         authoritative?: boolean
@@ -1755,7 +1774,8 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
   }
 
   const fetchModelsDevCatalogFor = async (
-    target: ModelProviderProfileV1
+    target: ModelProviderProfileV1,
+    modelHints?: CursorSubscriptionModel[]
   ): Promise<ModelsDevCatalogResult> => {
     if (typeof window.kunGui?.fetchModelsDevCatalog !== 'function') {
       return { status: 'error', message: 'models.dev catalog bridge is unavailable.', models: [] }
@@ -1771,7 +1791,15 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
             : source.preset.id
           : target.id,
         baseUrl: target.baseUrl,
-        forceRefresh: true
+        forceRefresh: true,
+        ...(modelHints?.length
+          ? {
+              modelHints: modelHints.map((model) => ({
+                id: model.id,
+                ...(model.aliases?.length ? { aliases: model.aliases } : {})
+              }))
+            }
+          : {})
       })
     } catch (error) {
       return {
@@ -1786,6 +1814,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
     target: ModelProviderProfileV1
     fingerprint: string
     providerModelIds: string[]
+    modelAliases?: Record<string, string[]>
     catalogResult: ModelsDevCatalogResult
     providerError?: string
     latencyMs?: number
@@ -1828,6 +1857,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
     setPendingImport({
       providerId: input.target.id,
       providerModelIds: input.providerModelIds,
+      ...(input.modelAliases ? { modelAliases: input.modelAliases } : {}),
       catalogResult: input.catalogResult,
       ...(input.providerError ? { providerError: input.providerError } : {}),
       ...(input.authoritative ? { authoritative: true } : {})
@@ -1854,7 +1884,11 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
         [target.id]: { fingerprint, mode, status: 'busy' }
       }))
       try {
-        const discovery = await window.kunGui.cursorSubscriptionDiscover(target.apiKey)
+        const discover = window.kunGui?.cursorSubscriptionDiscover
+        if (typeof discover !== 'function') {
+          throw new Error(`No bridge registered for '${CURSOR_SUBSCRIPTION_DISCOVERY_CHANNEL}'`)
+        }
+        const discovery = await discover(target.apiKey)
         const accountName = [
           discovery.account.userFirstName,
           discovery.account.userLastName
@@ -1868,12 +1902,19 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
           }
         }))
         if (mode === 'fetch') {
+          const modelIds = discovery.models.map((model) => model.id)
+          const modelAliases = Object.fromEntries(
+            discovery.models
+              .filter((model) => model.aliases?.length)
+              .map((model) => [model.id, [...(model.aliases ?? [])]])
+          )
           openModelImport({
             target,
             fingerprint,
-            providerModelIds: discovery.models,
-            catalogResult: await fetchModelsDevCatalogFor(target),
-            providerError: discovery.models.length === 0
+            providerModelIds: modelIds,
+            modelAliases,
+            catalogResult: await fetchModelsDevCatalogFor(target, discovery.models),
+            providerError: modelIds.length === 0
               ? t('providerModelImportProviderReturnedEmpty')
               : undefined,
             latencyMs: 0,
@@ -1898,7 +1939,10 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
             fingerprint,
             mode,
             status: 'error',
-            message: error instanceof Error ? error.message : String(error)
+            message: cursorSubscriptionDiscoveryErrorMessage(
+              error,
+              t('cursorSubscriptionRestartRequired')
+            )
           }
         }))
       }
@@ -2056,7 +2100,8 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
   const importPickedModels = (
     target: ModelProviderProfileV1,
     picked: ProviderModelImportResult,
-    authoritative = false
+    authoritative = false,
+    modelAliases: Readonly<Record<string, readonly string[]>> = {}
   ): void => {
     const nextChatModels = authoritative
       ? [...picked.chat]
@@ -2079,7 +2124,8 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
     const nextModelProfiles = enrichProviderModelProfiles(
       target,
       nextChatModels,
-      picked.catalogModels
+      picked.catalogModels,
+      modelAliases
     )
     const added =
       addedModelCount(target.models, nextChatModels)
@@ -3390,7 +3436,12 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
         t={t}
         onCancel={() => setPendingImport(null)}
         onConfirm={(picked) => {
-          importPickedModels(pendingImportProvider, picked, pendingImport.authoritative)
+          importPickedModels(
+            pendingImportProvider,
+            picked,
+            pendingImport.authoritative,
+            pendingImport.modelAliases
+          )
           setPendingImport(null)
         }}
       />

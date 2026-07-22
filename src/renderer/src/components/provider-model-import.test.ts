@@ -141,17 +141,24 @@ describe('provider model import merging', () => {
 describe('models.dev profile enrichment', () => {
   it('creates a runtime-safe profile for a new imported chat model', () => {
     const target = provider()
-    const next = enrichProviderModelProfiles(target, ['vision-model'], [{
-      id: 'vision-model',
-      inputModalities: ['text', 'image', 'pdf'],
-      outputModalities: ['text'],
-      contextWindowTokens: 256_000,
-      maxOutputTokens: 32_000,
-      toolCalling: false,
-      reasoning: true,
-      description: 'Display-only field'
-    }])
+    const next = enrichProviderModelProfiles(
+      target,
+      ['vision-model'],
+      [{
+        id: 'vision-model',
+        providerKey: 'google',
+        inputModalities: ['text', 'image', 'pdf'],
+        outputModalities: ['text'],
+        contextWindowTokens: 256_000,
+        maxOutputTokens: 32_000,
+        toolCalling: false,
+        reasoning: true,
+        description: 'Display-only field'
+      }],
+      { 'Vision-Model': ['vision-latest'] }
+    )
     expect(next['vision-model']).toEqual({
+      aliases: ['vision-latest'],
       contextWindowTokens: 256_000,
       maxOutputTokens: 32_000,
       inputModalities: ['text', 'image'],

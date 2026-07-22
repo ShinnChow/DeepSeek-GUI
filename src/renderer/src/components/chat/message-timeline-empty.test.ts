@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import i18n from '../../i18n'
 import { MessageTimelineEmptyHero } from './message-timeline-empty'
 
+type EmptyHeroProps = Parameters<typeof MessageTimelineEmptyHero>[0]
+
 /**
  * Tests for the "runtime offline" hero (`RuntimeWakeHero` inside
  * `MessageTimelineEmptyHero`). See issue #78 — when the user-reported port
@@ -14,21 +16,56 @@ import { MessageTimelineEmptyHero } from './message-timeline-empty'
  * error in the title slot so the user sees the real cause immediately.
  */
 
-function renderOfflineHero(runtimeError: string | null = null): string {
+function renderEmptyHero(patch: Partial<EmptyHeroProps> = {}): string {
   return renderToStaticMarkup(
     createElement(MessageTimelineEmptyHero, {
       route: 'chat',
-      ready: false,
+      ready: true,
       hasWorkspace: true,
-      runtimeError,
+      runtimeError: null,
       activeClawChannel: null,
       onPickWorkspace: () => undefined,
       onRetry: () => undefined,
       onOpenSettings: () => undefined,
-      onSelectSuggestion: () => undefined
+      onSelectSuggestion: () => undefined,
+      ...patch
     })
   )
 }
+
+function renderOfflineHero(runtimeError: string | null = null): string {
+  return renderEmptyHero({ ready: false, runtimeError })
+}
+
+describe('MessageTimelineEmptyHero — chat init welcome', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('en')
+  })
+
+  it('renders only the minimal welcome copy for a ready workspace chat', () => {
+    const html = renderEmptyHero()
+
+    expect(html).toContain('ds-chat-empty-hero')
+    expect(html).toContain('What would you like to do with Kun today?')
+    expect(html).toContain('Describe your idea, or start a new task')
+    expect(html).not.toContain('ds-runtime-wake-stage')
+    expect(html).not.toContain('ds-kun-state-')
+    expect(html).not.toContain('ds-initial-usage-heatmap')
+    expect(html).not.toContain('Expand calendar')
+    expect(html).not.toContain('Explain this project&#x27;s structure')
+    expect(html).not.toContain('<button')
+  })
+
+  it('suppresses welcome copy in focus mode without restoring the usage panel', () => {
+    const html = renderEmptyHero({ focusModeEnabled: true })
+
+    expect(html).toContain('ds-chat-empty-hero')
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).not.toContain('What would you like to do with Kun today?')
+    expect(html).not.toContain('Describe your idea, or start a new task')
+    expect(html).not.toContain('ds-initial-usage-heatmap')
+  })
+})
 
 describe('MessageTimelineEmptyHero — runtime offline hero (issue #78)', () => {
   beforeEach(async () => {
@@ -101,5 +138,14 @@ describe('MessageTimelineEmptyHero — runtime offline hero (issue #78, zh-CN)',
     expect(html).toContain('无法连接到本地运行时')
     expect(html).not.toContain('正在唤醒本地智能体')
     expect(html).toContain(portConflict)
+  })
+
+  it('uses the approved text-only init copy when the runtime is ready', () => {
+    const html = renderEmptyHero()
+
+    expect(html).toContain('今天想和 Kun 一起做什么？')
+    expect(html).toContain('描述你的想法，或从一个新任务开始')
+    expect(html).not.toContain('ds-kun-state-')
+    expect(html).not.toContain('ds-initial-usage-heatmap')
   })
 })

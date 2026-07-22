@@ -52,7 +52,11 @@ export const modelsDevCatalogPayloadSchema = z
   .object({
     providerId: trimmedString(128),
     baseUrl: trimmedString(MAX_URL_LENGTH),
-    forceRefresh: z.boolean().optional()
+    forceRefresh: z.boolean().optional(),
+    modelHints: z.array(z.object({
+      id: trimmedString(512),
+      aliases: z.array(trimmedString(512)).max(32).optional()
+    }).strict()).max(500).optional()
   })
   .strict()
 

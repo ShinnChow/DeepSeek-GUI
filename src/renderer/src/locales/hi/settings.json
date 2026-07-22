@@ -1436,6 +1436,7 @@
   "cursorSubscriptionNote": "Enter an API key created in the Cursor dashboard. Kun uses the official Cursor SDK and never requires the Cursor desktop app or reads its local login.",
   "cursorSubscriptionGetApiKey": "Get Cursor API key",
   "cursorSubscriptionAccount": "Connected account: {{account}} · API key: {{keyName}}",
+  "cursorSubscriptionRestartRequired": "Kun's main process is still running an older version. Fully quit Kun and reopen it, then test the connection again.",
   "geminiCliChecking": "Checking Antigravity CLI…",
   "geminiCliMissing": "Antigravity CLI is not installed",
   "geminiCliDownloading": "Downloading Antigravity CLI…",

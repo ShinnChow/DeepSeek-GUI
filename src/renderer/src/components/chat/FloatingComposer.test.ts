@@ -1910,7 +1910,7 @@ describe('FloatingComposer capability controls', () => {
     expect(html).toContain('aria-label="Tool permission"')
   })
 
-  it('renders a changed-file review card above the input', () => {
+  it('keeps historical file-change summaries out of the input', () => {
     useChatStore.setState({
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
@@ -1935,23 +1935,12 @@ describe('FloatingComposer capability controls', () => {
         onSend: () => undefined,
         onInterrupt: () => undefined,
         attachmentUploadEnabled: false,
-        webAccessAvailable: false,
-        changedFiles: [
-          { path: 'src/a.ts', added: 3, removed: 1 },
-          { path: 'src/b.ts', added: 2, removed: 4 }
-        ],
-        changedFileStats: { added: 5, removed: 5 },
-        onOpenChanges: () => undefined,
-        onReviewChanges: () => undefined
+        webAccessAvailable: false
       })
     )
 
-    expect(html).toContain('2 files changed')
-    expect(html).toContain('src/a.ts')
-    expect(html).toContain('+5')
-    expect(html).toContain('-5')
-    expect(html).toContain('Preview')
-    expect(html).toContain('Review')
+    expect(html).not.toContain('files changed')
+    expect(html).not.toContain('data-turn-change-summary')
   })
 
   it('keeps the empty-session composer interactive in the Electron drag shell', () => {

@@ -62,6 +62,8 @@ function harness(input: {
   apiKey?: string
   run?: Run
   thread?: Record<string, unknown>
+  items?: Array<Record<string, unknown>>
+  attachmentStore?: CursorSdkRuntimeDeps['attachmentStore']
   debugSink?: LlmDebugRecorder
   turnLimits?: { maxWallTimeMs?: number }
   loadError?: Error
@@ -70,11 +72,15 @@ function harness(input: {
   const recorded: unknown[] = []
   const finished: unknown[] = []
   const createOptions: AgentOptions[] = []
+  const sentMessages: unknown[] = []
   const run = input.run ?? fakeRun()
   const agent = {
     agentId: 'agent_1',
     model: { id: 'auto' },
-    send: async () => run,
+    send: async (message: unknown) => {
+      sentMessages.push(message)
+      return run
+    },
     close: vi.fn(),
     reload: async () => undefined,
     listArtifacts: async () => [],
@@ -114,7 +120,7 @@ function harness(input: {
     systemPrompt: 'Kun system prompt',
     threadStore: { get: async () => thread },
     sessionStore: {
-      loadItems: async () => [{
+      loadItems: async () => input.items ?? [{
         id: 'user_1',
         threadId: 'thread_1',
         turnId: 'turn_1',
@@ -136,6 +142,7 @@ function harness(input: {
       return sdk
     },
     debugSink: input.debugSink,
+    attachmentStore: input.attachmentStore,
     turnLimits: input.turnLimits
   } as unknown as CursorSdkRuntimeDeps
   return {
@@ -144,6 +151,7 @@ function harness(input: {
     applied,
     recorded,
     finished,
+    sentMessages,
     agent
   }
 }
@@ -213,6 +221,65 @@ describe('CursorSdkRuntime', () => {
       approvalPolicy: 'auto',
       sandboxMode: 'read-only'
     }).mode).toBe('plan')
+  })
+
+  test('forwards authorized image attachments as a structured SDK message without tracing bytes', async () => {
+    const debugSink = new LlmDebugRecorder()
+    const imageBytes = Buffer.from('sensitive-image-bytes')
+    const resolveContent = vi.fn(async () => ({
+      id: 'att_0123456789abcdef01234567',
+      name: 'diagram.png',
+      kind: 'image',
+      mimeType: 'image/png',
+      byteSize: imageBytes.byteLength,
+      hash: 'hash',
+      width: 640,
+      height: 480,
+      threadIds: ['thread_1'],
+      workspaces: ['/tmp/cursor-workspace'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      data: imageBytes
+    }))
+    const h = harness({
+      debugSink,
+      attachmentStore: { resolveContent } as unknown as CursorSdkRuntimeDeps['attachmentStore'],
+      items: [{
+        id: 'user_1',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        role: 'user',
+        status: 'completed',
+        createdAt: new Date().toISOString(),
+        kind: 'user_message',
+        text: 'describe this image',
+        attachmentIds: ['att_0123456789abcdef01234567']
+      }]
+    })
+
+    await expect(h.runtime.runTurn(
+      'thread_1',
+      'turn_1',
+      new AbortController().signal,
+      'cursor-subscription'
+    )).resolves.toBe('completed')
+
+    expect(resolveContent).toHaveBeenCalledWith(
+      'att_0123456789abcdef01234567',
+      { threadId: 'thread_1', workspace: '/tmp/cursor-workspace' }
+    )
+    expect(h.sentMessages[0]).toMatchObject({
+      text: expect.stringContaining('describe this image'),
+      images: [{
+        data: imageBytes.toString('base64'),
+        mimeType: 'image/png',
+        dimension: { width: 640, height: 480 }
+      }]
+    })
+    const traceJson = JSON.stringify(debugSink.snapshot())
+    expect(traceJson).not.toContain(imageBytes.toString('base64'))
+    expect(traceJson).toContain('"count":1')
+    expect(traceJson).toContain('"mimeType":"image/png"')
   })
 
   test('fails closed without borrowing the default provider credential', async () => {

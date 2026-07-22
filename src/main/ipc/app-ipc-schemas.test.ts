@@ -42,11 +42,13 @@ describe('app-ipc-schemas', () => {
     expect(modelsDevCatalogPayloadSchema.parse({
       providerId: 'xiaomi-token-plan',
       baseUrl: ' https://token-plan-cn.xiaomimimo.com/v1 ',
-      forceRefresh: true
+      forceRefresh: true,
+      modelHints: [{ id: 'gpt-5.5', aliases: ['gpt-latest'] }]
     })).toEqual({
       providerId: 'xiaomi-token-plan',
       baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
-      forceRefresh: true
+      forceRefresh: true,
+      modelHints: [{ id: 'gpt-5.5', aliases: ['gpt-latest'] }]
     })
     expect(() => modelsDevCatalogPayloadSchema.parse({
       providerId: 'xiaomi-token-plan',
