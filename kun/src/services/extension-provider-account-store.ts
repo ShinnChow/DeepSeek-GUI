@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { createHash, randomUUID, scryptSync } from 'node:crypto'
 import { isAbsolute, join, resolve } from 'node:path'
 import type {
   ExtensionAccountProjection,
@@ -452,9 +452,7 @@ function normalizeBindingScope(value: string): string {
 }
 
 function providerBindingKey(scopeKey: string, providerId: string): string {
-  return createHmac('sha256', 'kun-provider-binding-key-v1')
-    .update(`${scopeKey}\0${providerId}`)
-    .digest('hex')
+  return scryptSync(`${scopeKey}\0${providerId}`, 'kun-provider-binding-key-v1', 32).toString('hex')
 }
 
 function findBindingRecord(

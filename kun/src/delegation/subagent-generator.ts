@@ -156,7 +156,11 @@ function normalizedProfileSlug(value: string): string {
       previousWasSeparator = true
     }
   }
-  return normalized.replace(/^-+|-+$/g, '').slice(0, 40)
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === '-') start += 1
+  while (end > start && normalized[end - 1] === '-') end -= 1
+  return normalized.slice(start, end).slice(0, 40)
 }
 
 function isProfileSlugCharacter(character: string): boolean {
